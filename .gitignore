@@ -1,0 +1,15 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
+
+# Per-machine Claude Code settings; the tracked settings.json is deliberate
+.claude/settings.local.json
+
+# Per-machine session costs, written by the SessionEnd hook. Regenerable from
+# the transcripts at any time, and meaningless on another machine.
+.claude/session-costs.tsv
+
+# graphify — regenerable and expensive; never commit
+graphify-out/
+.graphify_*

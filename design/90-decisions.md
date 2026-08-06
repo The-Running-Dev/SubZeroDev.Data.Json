@@ -196,6 +196,632 @@ benefit. Precedent: `SubZeroDev.GameEngine` retains `W` for the same reason.
 
 ---
 
+## D11 — Installed the SubZeroDev.AgentKit (2026-08-07)
+
+**Decided.** Ran `/install` from `SubZeroDev.AgentKit` @ `3624e16dacc10e46d2c29bf779bb1e8f3108208f`. The
+repository had no `.git`; initialised it first (root commit `4e68976`, `README.md` and the
+five existing `design/` docs) so the install had a real tree to reconcile against, per
+`INSTALL.md` phase 0's stop-if-not-a-repo rule.
+
+Three forks were resolved, all with the recommended option:
+
+- **`AGENTS.md`/`CLAUDE.md` direction.** Neither existed. Installed the kit's default
+  arrangement: `AGENTS.md` holds the contract plus a project-identity header (owner,
+  companions, status) drawn from `README.md`; `CLAUDE.md` is a pointer. Rejected: inverting
+  the direction — no reason to diverge from the kit's own default on a fresh repo.
+- **`agent.md` seed.** Installed verbatim. Reviewed every lesson against this repo's actual
+  stack (TypeScript, design-heavy, git, the PowerShell verify workflow this install also
+  added) and found none demonstrably inapplicable — no lesson pruned. Rejected: pruning
+  speculatively to shorten the file; the seed is short enough that a few plausibly-relevant
+  lessons cost less than losing one that turns out to matter.
+- **`Measure-Session.ps1` hooks.** `pwsh` is on `PATH`; `.claude/settings.json` was absent, so
+  it was created containing only the `SessionEnd` and `UserPromptSubmit` hooks for this
+  script, per `INSTALL.md`'s two-event carve-out. Rejected: installing the script without the
+  hooks — cheaper to reverse, but loses the automatic session-cost reporting the tool exists
+  for, with no reason here to withhold it.
+
+`design/00-brief.md` through `30-slices.md` and this file's own prior entries (D1–D10,
+`Deferred`, `Open register`) were already present with real content in the kit's exact
+filenames — classified divergent, target wins wholesale per `INSTALL.md` phase 2. The kit's
+`templates/design/` seeds were not written.
+
+**Rejected overall alternative:** not installing at all, leaving the repo to accumulate
+project-specific agent instructions from scratch. The kit's contract (model routing, session
+boundaries, decision logging, tracking-work rules) is exactly what this repo's own
+`design/90-decisions.md` and `30-slices.md` already assume a reader knows.
+
+**Reversibility:** cheap. Every installed file is additive against a repo that had none of
+them; removing the kit is deleting the files this entry lists.
+
+---
+
+Settled 2026-08-07, in the `/design` pass that restructured `10-design.md`. D12–D21 are the
+pipeline and concurrency decisions the type signatures alone did not settle.
+
+---
+
+## D12 — The source id is the only identity (2026-08-07)
+
+**Context.** The cache, the lockfile, the prefetched artifact, `invalidate`, and the source
+map all need a handle. Any second handle would need a mapping, and a mapping can be wrong.
+
+**Chosen.** The source id keys all five. A cache entry additionally records the location it
+resolved from, and a lookup whose request resolves elsewhere is a miss. An id present in both
+`sources.public.yml` and `sources.server.yml` is a configuration error the build gate rejects.
+
+**Rejected.** A composite cache key over id plus request options — it makes `invalidate(id)`
+unable to name what it is invalidating without enumerating the cache. Also rejected: allowing
+an id in both maps, which makes an id's meaning depend on which file the reader opened, the
+exact ambiguity D6 exists to prevent.
+
+**Reversibility:** expensive. The id is in the lockfile, the artifact names, and the public
+`invalidate` signature.
+
+---
+
+## D13 — The cache line is the post-unwrap, pre-validation value (2026-08-07)
+
+**Context.** Two call sites may read one id with different validators, and a validator may
+transform. Something has to say what the cache holds.
+
+**Chosen.** The cache holds the value after unwrap and before validation. Validation runs per
+call against the shared value, so `meta.validated` is a property of the call, not the entry.
+
+**Rejected.** Caching the validated value — what a read-through cache does by default, and it
+silently hands the second caller the first caller's transform. Also rejected: caching the raw
+text and re-parsing per call, which is correct but pays parse cost on every hit for a payload
+that by definition has not changed.
+
+**Reversibility:** moderate. It is internal, but `20-contract.md` I12's wording is written
+around it.
+
+---
+
+## D14 — `digest` covers the post-unwrap value (2026-08-07)
+
+**Context.** The digest is the lockfile's content identity and the primitive the GameEngine
+builds content-pack identity on (`00-brief.md` §5.7). Where it sits in the pipeline decides
+what it means.
+
+**Chosen.** SHA-256 over the canonical serialization of the value after unwrap and before
+validation.
+
+**Rejected.** The raw bytes as received — cheaper, and needs no canonical serializer, but a
+key reorder or a whitespace change reads as a content change, and the digest changes when a
+payload moves from a bundled import to an enveloped endpoint, which is the migration this
+package exists to make cheap. Also rejected: the post-validation value, which ties a payload's
+identity to a consumer's schema, so two consumers of one payload compute two digests and the
+lockfile stops meaning anything.
+
+**Reversibility:** expensive. Committed lockfiles carry the digests; changing the definition
+invalidates every one of them.
+
+---
+
+## D15 — Concurrent reads of one id are coalesced, and `invalidate` wins (2026-08-07)
+
+**Context.** Three components mounting together and reading one id issue three transports on a
+cold cache. No cache policy helps — the race is exactly the window in which the cache is empty.
+Separately, an `invalidate` during a load has a race where the forgotten value reappears.
+
+**Chosen.** An in-flight map keyed by cache key: the first caller starts the load, the rest
+join its promise. Each key carries a generation counter that `invalidate` increments; a load
+compares the generation it started under before storing, and on a mismatch returns its result
+without caching it.
+
+**Rejected.** No coalescing — meaningfully simpler, no in-flight map and no counter, but
+duplicated fetches are one of the defects being replaced and a cache demonstrably does not fix
+them. Also rejected: coalescing on the full request rather than the cache key, which coalesces
+almost nothing because two call sites rarely build identical requests. Also rejected: letting a
+late load populate the cache after an invalidate, which is the version with the race.
+
+**Reversibility:** cheap. Both are internal to the loader.
+
+---
+
+## D16 — Retry covers transport-class failures only; `timeoutMs` is per attempt (2026-08-07)
+
+**Context.** `RetryPolicy` says how many attempts, not what is worth reattempting. Left
+unstated, the natural implementation retries everything.
+
+**Chosen.** Retries apply to `json.transport`, `json.timeout`, and statuses 408, 429, and 5xx.
+Never to other 4xx, never to `json.parse`, `json.schema`, or `json.notFound`. `timeoutMs`
+bounds each attempt, not the call.
+
+**Rejected.** Retrying every failure — a 404 does not become a 200 and a malformed body does
+not become well-formed, so it spends the whole budget to reach the same answer more slowly.
+Also rejected: a total-call timeout, which is friendlier to a caller reasoning about worst-case
+latency but makes the last attempt's budget depend on how long the earlier ones took, so a
+retry policy silently degrades under load.
+
+**Reversibility:** cheap for the classification, moderate for the timeout meaning — the latter
+changes observed latency at every call site.
+
+---
+
+## D17 — Eager resolution reports every failure, not the first (2026-08-07)
+
+**Context.** `preload` and `prefetch` both resolve a set of ids up front and both can fail on
+several at once.
+
+**Chosen.** Resolve all concurrently, then fail with every failed id named.
+
+**Rejected.** Fail fast on the first — the obvious implementation and it returns sooner, but a
+boot or a build that stops at the first of four misconfigured sources costs four round trips of
+a human's attention to discover what one could have said. These are the two places where a
+complete diagnosis is worth waiting for.
+
+**Reversibility:** cheap.
+
+---
+
+## D18 — No stale-on-error; `fallback` is the only degraded-data path (2026-08-07)
+
+**Context.** A refresh failure with a stale entry present is a fork: report the failure, or
+serve the stale value.
+
+**Chosen.** Report the failure. The stale entry is neither returned nor evicted — it is simply
+not a hit. A declared `fallback` is the only way a caller receives data it did not just read.
+
+**Rejected.** Stale-while-error, which is what a CDN would do and looks more resilient, but it
+makes `meta.cached` and `ok` jointly ambiguous and hands the caller old data under a success
+they did not ask for — warn-then-substitute-defaults again, one of the three conventions D8
+exists to retire. Also rejected: evicting on failure, which turns one outage into a cold start
+for no gain.
+
+**Reversibility:** cheap and additive. Stale-on-error can arrive later as a declared policy,
+which is the form it should have had anyway.
+
+---
+
+## D19 — `/build` writes with Node directly; the filesystem port stays read-only (2026-08-07)
+
+**Context.** `prefetch` writes artifacts and a lockfile, and the declared `FileSystemPort` has
+no write member. Something has to give.
+
+**Chosen.** `/build` reads through whatever ports it is handed and writes with the Node runtime
+directly. The filesystem port keeps `read`, `stat`, and `watch` only. `/build` does not depend
+on `/node`; a consumer composes the two. Lockfile entries are emitted in sorted-id order through
+the canonical serializer, so concurrent resolution order cannot change the bytes.
+
+**Rejected.** Adding a write member to the port — it is the seam through which "the package is
+read-only" (D5) stops being true, and it would be available to the core. Also rejected: an
+unsorted lockfile, which would make a diff-driven review of build output meaningless the moment
+resolution order changed.
+
+**Reversibility:** cheap for the write path, expensive for lockfile ordering once lockfiles are
+committed and compared.
+
+---
+
+## D20 — The router maps reason to status and never forwards the upstream status (2026-08-07)
+
+**Context.** The GET-only mount serves payloads the loader fetched from somewhere else. An
+upstream failure has two plausible renderings.
+
+**Chosen.** `json.unresolved` and `json.notFound` to 404; `json.timeout` and `json.transport`
+to 504; `json.status`, `json.parse`, and `json.schema` to 502.
+
+**Rejected.** Forwarding the upstream status, which preserves more information and is a
+one-liner — but an upstream 404 arriving as the API's own 404 tells a client "your route is
+wrong" when the truth is "our upstream is wrong", and those two send a caller in opposite
+directions.
+
+**Reversibility:** moderate. It is observable behaviour that clients will encode.
+
+---
+
+## D21 — Returned values are frozen on every path, not only the cached one (2026-08-07)
+
+**Context.** `20-contract.md` I12 requires cached values to be frozen. It does not say what
+happens when caching is off.
+
+**Chosen.** Every value the loader returns is frozen, including on a cache miss, with caching
+disabled, and after a validator transform.
+
+**Rejected.** Freezing only cached values — cheaper, and literally what I12 asks for, but it
+makes mutability depend on a cache policy the call site cannot see. A source's configuration
+changing must not change a call site's semantics; that is the same principle I9 states for
+`at:`, and it is worth an O(n) walk on a payload that is already assumed to fit in memory.
+
+**Reversibility:** expensive. Consumers will come to rely on it, and relaxing it is invisible
+until something mutates shared state.
+
+---
+
+Settled 2026-08-07, in the `/contract` pass that amended `20-contract.md` against the
+red-team register. D22–D33 adjudicate O6, O7, O8, O10–O14, and O18–O20, plus `10-design.md`
+§7 Q1 and Q2. D34–D38 are the corrections those twelve carried with them, and close O9, O15
+in part, and O21–O23.
+
+---
+
+## D22 — The core computes SHA-256 itself; there is no hash port (2026-08-07)
+
+**Context.** O8, ruled a defect: the contract declared a `'sha256-<hex>'` digest and no legal
+way to produce one. `node:crypto` is a module I1 forbids and is absent in a browser;
+`globalThis.crypto.subtle` is ambient and async; a dependency contradicts the
+zero-dependency core.
+
+**Chosen.** A hand-written SHA-256 in the core, synchronous, roughly 90 lines, cross-checked
+against published test vectors and against the engine's (I13).
+
+**Rejected.** A sync `hash` port matching the clock and rng treatment — a browser consumer
+still has to supply a JS implementation from somewhere, so the code moves rather than
+vanishes, and the algorithm becomes per-consumer. That is the objection D14 makes against a
+consumer-dependent digest: two consumers of one payload compute two identities and the
+lockfile stops meaning anything. Also rejected: an async port so both environments can use
+native subtle crypto — same per-consumer weakness, plus a new await point inside the
+digest-freeze-store step. Also rejected: dropping the digest, which takes the lockfile, J3.3,
+and the content-pack primitive with it.
+
+**Reversibility:** cheap to add a port later; expensive to change what the digest covers
+(D14).
+
+---
+
+## D23 — A cancellable scheduling port (2026-08-07)
+
+**Context.** `10-design.md` §7 Q1: the core cannot schedule work in the future, so neither
+`timeoutMs` nor `retry.delayMs` was implementable.
+
+**Chosen.** `schedule?: (ms: number) => { promise: Promise<void>; cancel(): void }` on
+`JsonPorts`. Its absence is a construction error wherever a timeout or a non-zero delay is
+declared, matching I6's existing treatment of `clock` and `rng`.
+
+**Rejected.** A bare `sleep(ms): Promise<void>` — simpler and equally testable, but with no
+cancellation every attempt that finishes before its timeout leaves a live timer, visible as a
+process that will not exit. Also rejected: an ambient `setTimeout` in the core, which puts an
+ambient call in a core whose whole claim is that it has none and makes retry and timeout
+untestable without real elapsed time. Also rejected: dropping `delayMs` and per-attempt
+timeouts from v1, when timeout is one of the seven properties `00-brief.md` §2 counts as
+missing from all five existing implementations.
+
+**Reversibility:** cheap. The port is additive and its absence is already an error.
+
+---
+
+## D24 — `/build` emits a derived source map whose `at: build` entries are inline (2026-08-07)
+
+**Context.** O6, ruled a defect: nothing read a prefetched `at: build` artifact at runtime.
+The build wrote one artifact per source, no type named them, and `10-design.md` §3.1's nine
+steps never branched on `at`.
+
+**Chosen.** `prefetch` returns and writes a `SourceMap` in which every `at: build` entry has
+become `{ inline: <resolved data> }`. The consumer constructs its runtime loader from that
+map. §3.1 stays at nine steps with no `at` branch, I8 and I9 both hold literally, and O2's
+question about whether `inline` earns its keep is answered — it is the handoff mechanism.
+
+**Rejected.** Reading the artifact through the filesystem port at runtime, which fails
+outright in a browser — half the co-equal consumer set — and makes I8's "never fetched at
+runtime" a wording argument rather than a property. Also rejected: a third `artifacts`
+argument to `createJsonLoader`, which needs no codegen but leaves two places that must agree
+on ids and an argument only build-time consumers use.
+
+**Reversibility:** moderate. The emitted map is build output and regenerable, but consumers
+import it, so the import path is a public surface.
+
+---
+
+## D25 — Transport shape is configuration; the cache key is the source id (2026-08-07)
+
+**Context.** O7, BLOCKING: the cache and in-flight keys were the id checked against the
+recorded location, while `JsonRequest` varied `unwrap`, `headers`, `timeoutMs`, and `retry`
+under one id. Reproduced as an I4 violation, a credential reaching a caller who supplied
+none, and an I11 violation where a joiner reported attempts it did not make.
+
+**Chosen.** `unwrap`, `headers`, `timeoutMs`, `retry`, `maxBytes`, and the cache policy leave
+`JsonRequest` and live only on `SourceEntry`. A request keeps `fallback`, `validate`,
+`digest`, and a `cache: false` opt-out. A request supplying its own `source` is never cached,
+never written, and never joined. `at` leaves `JsonRequest` too — a request-level `at`
+directly contradicts I9.
+
+**Rejected.** Widening the key to include a digest of the transport-affecting request fields,
+which keeps every field but contradicts D15's explicit rejection of coalescing on the full
+request and reintroduces D12's rejected alternative: `invalidate(id)` can no longer name what
+it evicts, and `CacheStore` declares no enumeration (O21). Also rejected: keeping the key and
+documenting that per-request options are ignored on a hit — the credential case is real, and
+"documented" is the warn-then-continue convention D8 exists to retire.
+
+**Reversibility:** expensive. Every call site that wanted a per-call unwrap or header now
+declares a source.
+
+---
+
+## D26 — One `JsonError` with an enumerated code (2026-08-07)
+
+**Context.** O12: `preload` rejected with an untyped `Error` carrying reason codes inside a
+formatted string, and `createJsonLoader`'s I6 throw and the build gate's throw were likewise
+untyped. The one place a composition root must branch on why boot failed was the one place
+the package returned what D8 was written to retire.
+
+**Chosen.** `class JsonError extends Error` with `code: JsonErrorCode` — a closed union of
+six — and `failures: readonly JsonFailure[]`. It is the only thing this package throws or
+rejects with (I24). `load` still throws nothing at all (I2).
+
+**Rejected.** Per-module error classes, which give more precise catch clauses but split
+across subpaths — construction lives in the core, the gate in `/build` — for a caller who
+mostly wants one type. Also rejected: keeping the untyped `Error` and specifying the message
+format, which makes the message load-bearing, something §1 already forbids for results.
+
+**Reversibility:** expensive. Consumers catch on `code`.
+
+---
+
+## D27 — `provider: 'none'` for a result where nothing resolved (2026-08-07)
+
+**Context.** O20: `JsonMeta.provider` had no member for `json.unresolved` or a malformed
+request, yet I2 requires a `JsonResult` for both. Whatever an implementer picked, a consumer
+switching exhaustively was told something false, and `JsonEvent.meta` inherited it.
+
+**Chosen.** `'http' | 'file' | 'inline' | 'none'`, with `location: ''` and `id: ''` when the
+request carried no usable id. §1.3 already gave `location` this treatment; `provider` now
+matches.
+
+**Rejected.** A nullable `provider`, which carries the same information but invites
+optional-chaining at every call site rather than an exhaustive switch. Also rejected:
+reporting the provider the request would have used, which is unresolvable when the id is
+absent from the map — `json.unresolved`'s main case — so it does not close the hole.
+
+**Reversibility:** moderate. Adding a union member is a breaking change for exhaustive
+switches, which is why it is done before 0.1.0.
+
+---
+
+## D28 — A `success: false` envelope is `json.schema` (2026-08-07)
+
+**Context.** O18: `200 {"success":false,"error":"rate limited"}` under
+`unwrap: 'subzerodev'` produced `ok: true` with `data: undefined`. `10-design.md` §4.1
+defined only "declared envelope absent → `json.schema`", and this envelope is present, so an
+implementer could equally reject it. The design admitted both.
+
+**Chosen.** An envelope whose `success` is false carries no `data` member, so the declared
+unwrap cannot produce a value — the same condition as an absent envelope, and §4.1's existing
+row already routes that to `json.schema`. The envelope's own error text goes into `message`.
+
+**Rejected.** A distinct `json.envelope` reason code, which is more precise — a boundary
+could render an upstream refusal differently from a schema break, exactly the distinction
+§4.2 says the vocabulary exists for — at the cost of a tenth code in every exhaustive switch
+and in D20's router mapping. Reconsider it if a consumer actually needs the two rendered
+apart. Also rejected: unwrapping `data` regardless of the flag, which is the reproduced
+defect.
+
+Separately settled: the `'subzerodev'` literal stays in the core, because it is declared in
+configuration and the core reads configuration. `10-design.md` §2 assigns `/node` the
+envelope's *producer*, which is `envelope()`, and J2.5's round-trip test keeps the two ends
+agreeing.
+
+**Reversibility:** cheap for the classification; adding a code later is additive.
+
+---
+
+## D29 — A digest is computed from the cached value on demand (2026-08-07)
+
+**Context.** O11: a cache entry stored one digest, so a later `digest: true` request against
+an entry cached without one returned `digest: null` under `ok: true`, and
+`JsonLock.sources[].digest` is typed `string` with nothing to put in it.
+
+**Chosen.** The cache holds the post-unwrap, pre-validation value (D13), which is exactly
+what the digest covers (D14), so a hit computes the digest without any transport and
+memoizes it into the entry. `10-design.md` §5's claim that a hit returns a digest without
+recomputing becomes an optimisation for the common case rather than a guarantee that breaks.
+
+**Rejected.** Always computing the digest and deleting the flag — one fewer axis and the
+entry always has one, but an O(n) canonicalization plus a SHA-256 on every load of every
+payload, including hot paths that never read it, when the D21 freeze is already one O(n)
+walk. Also rejected: treating it as a cache miss and re-transporting, which spends a round
+trip to derive something already computable from data in hand.
+
+**Reversibility:** cheap. It is internal to the loader.
+
+---
+
+## D30 — Port presence is checked at construction, scoped to the map supplied (2026-08-07)
+
+**Context.** `10-design.md` §7 Q2 and O19: I6 was checked against every entry in the source
+map, so a build could not construct a loader over a map containing an `at: runtime` ttl
+source without a clock for a source I8 guarantees it will never touch. A missing `fetch` or
+`fs` port for a declared kind was specified nowhere.
+
+**Chosen.** I6 extends to `fetch`, `fs`, and `schedule` alongside `clock` and `rng`, and
+covers exactly the entries in the map handed to `createJsonLoader`. Because D24 has `/build`
+rewrite `at: build` entries to inline, a runtime map contains only entries that loader can be
+asked to resolve; `prefetch` checks only `at: build` entries. The scoping falls out of D24
+rather than needing a mechanism.
+
+**Rejected.** An explicit `{ resolves: 'build' | 'runtime' }` option, which is more explicit
+but restates what `at` already says and silently checks the wrong half when set wrong. Also
+rejected: a read-time `json.transport` failure for a missing `fetch` or `fs`, which is more
+forgiving of a map declaring more than an environment uses but lets a loader that can never
+satisfy its own map boot happily.
+
+**Reversibility:** cheap in either direction.
+
+---
+
+## D31 — `dispose()` on the loader; watches register lazily (2026-08-07)
+
+**Context.** O10: `FileSystemPort.watch` returned an unsubscribe no member of `JsonLoader`
+could call. Three loaders registered three watchers and all three stayed active, Node will
+not exit while one is, and `10-design.md` §2 assigns `/react` a mount and unmount lifecycle
+with nothing to unwind. The design also never stated when a watch is registered.
+
+**Chosen.** `dispose(): void` plus `[Symbol.dispose]`, unsubscribing every watcher and
+dropping this loader's cache keys, idempotent. A watch is registered lazily, on the first
+successful read of a file entry declaring an `mtime` policy.
+
+**Rejected.** Registering at construction, which is more predictable — no first-read side
+effect — but opens a watcher per file entry whether or not anything reads it, and forces a
+not-yet-existing path to be handled at construction. Also rejected: dropping `watch` from the
+port in v1, which gives up §3.3's fourth path, the retirement of the external file watcher
+`Docs-Template` runs today.
+
+**Reversibility:** cheap. Both are additive.
+
+---
+
+## D32 — No default cache policy; `cache` is required on http and file entries (2026-08-07)
+
+**Context.** O13: the default was `{ kind: 'manual' }`, which always hits until invalidated,
+so a source migrated without a `cache:` line was read once per process lifetime.
+`HttpDataProvider.tsx` carries a 5-minute TTL today, and the line-deleting migration
+`00-brief.md` §7.3 rewards would silently have made it static.
+
+**Chosen.** `cache` is required on every http and file entry and forbidden on an inline
+entry. `JsonRequest` keeps only `cache: false` as a caller-local opt-out, which also closes
+the per-call policy divergence D25 removed everywhere else.
+
+This is D3's treatment of `at:`, for D3's reason: a default on this axis silently changes the
+behaviour of every migrated source. The cost — one line per entry in both YAML files — is
+paid once, in review, by someone who knows how fresh that payload has to be.
+
+**Rejected.** Defaulting to no caching, which is never stale and never surprising but trades
+a silent staleness regression for a silent performance one, and makes the cache opt-in when
+it is one of the seven properties `00-brief.md` §2 counts. Also rejected: keeping `manual`
+and documenting it, which leaves the failure silent, looking like a working migration, and
+surfacing weeks later as stale data.
+
+**Reversibility:** cheap. Adding a default later is additive; removing one is not.
+
+---
+
+## D33 — Optional `maxBytes` and a `json.tooLarge` reason code (2026-08-07)
+
+**Context.** O14: nothing bounded response size. `meta.bytes` is counted after the body is in
+hand and every declared bound was temporal. The remote payloads `00-brief.md` §2 names as the
+untrusted ones are exactly the ones whose size the operator does not control.
+
+**Chosen.** `maxBytes?: number` on http and file entries, checked against `Content-Length`
+where present and against the decoded length always, yielding `json.tooLarge` — not
+retryable, nothing cached. Unbounded when undeclared, so no invented number becomes a de
+facto policy and nothing existing changes behaviour. D20's router mapping grows one row:
+`json.tooLarge` to 502.
+
+**Rejected.** A declared default cap, which protects an undeclared source but invents a
+number here rather than deriving it from anything, and lands the failure on whoever publishes
+the data rather than whoever set the cap. Also rejected: no bound in v1, which leaves a
+hostile or broken upstream able to exhaust the process.
+
+This is not `F5`. F5 defers *handling* large payloads — streaming, chunking. This is
+refusing one.
+
+**Reversibility:** cheap for the bound; a ninth reason code is moderate, since exhaustive
+switches must grow.
+
+---
+
+## D34 — `AbortController` is the one ambient global the core may use (2026-08-07)
+
+**Context.** D23 gives the core a way to wait. `10-design.md` §4.1 also requires a timeout to
+*abort* the attempt, and abandoning a promise leaves the socket open. Constructing an
+`AbortController` is an ambient reference in a core whose claim is that it has none.
+
+**Chosen.** I1 permits `AbortController`, and only to cancel a transport attempt. It carries
+no time and no randomness, so it does not threaten what the guard in `00-brief.md` §4
+actually bans, and it exists in both environments.
+
+**Rejected.** Pushing cancellation into the fetch port by passing it a budget, which moves
+retry and timeout policy out of the core into every port implementation. Also rejected:
+racing the fetch and abandoning the loser, which satisfies the timeout's observable timing
+while leaking a connection per timed-out attempt.
+
+**Reversibility:** cheap, but it widens I1, which is the invariant everything else's
+isomorphism claim rests on. It is a named exception, not a relaxation.
+
+---
+
+## D35 — The cache entry holds facts; keys are namespaced per loader (2026-08-07)
+
+**Context.** O9 and O21. `ports.cache` is injectable, so §5's "two loaders in one process
+share nothing" was false whenever one `CacheStore` reached two loaders. Separately,
+`invalidate()` with no argument could not bump a generation for a key holding no entry —
+the cold-cache window D15 exists to close — because `CacheStore` declares no enumeration.
+
+**Chosen.** Three changes. `CacheEntry` stores the value, the source, the location, the byte
+count, a memoizable digest, `storedAt`, and the stamp — not a whole `JsonMeta`, whose
+`cached`, `attempts`, and `validated` are per call (D13). A loader namespaces its cache keys
+with its own instance identity, so a shared store cannot cross-serve, and it never calls
+`clear()`. Generation counters live in the loader, not the store, and `invalidate()` bumps a
+loader-wide epoch, which covers keys that hold no entry yet.
+
+**Rejected.** Adding `keys()` to `CacheStore` so `invalidate()` could enumerate — it widens a
+port to solve a problem the loader can hold internally, and it still misses keys nothing has
+written. Also rejected: documenting that a `CacheStore` must not be shared, which defends
+§5's claim by convention where namespacing defends it mechanically.
+
+**Reversibility:** cheap. All three are internal to the loader.
+
+---
+
+## D36 — The `mtime` stamp is captured before the read; a null stamp is never a hit (2026-08-07)
+
+**Context.** O22. The design never stated whether the stamp is captured before or after the
+read, and §4.1's "stat fails, read anyway" path stores an entry with no stamp without saying
+whether that is a permanent hit or a permanent miss.
+
+**Chosen.** Stat before the read. A null stamp is never a hit. An `mtime` policy on a
+non-file entry is `config.invalidEntry`, which the split `HttpCacheSpec`/`FileCacheSpec`
+types now also make unrepresentable in configuration.
+
+Before-the-read is the safe direction: the stamp may be older than the bytes, which costs one
+redundant re-read, where after-the-read may be newer than the bytes, which serves stale
+content under a fresh stamp. J2.2 says the policy never returns a stale read, and only one of
+the two orderings can honour that.
+
+**Known-and-retained.** The policy still misses a same-size edit inside the filesystem's
+mtime resolution — `"a"` → `"b"` at identical size and mtime serves the stale value. That is
+inherent to a `(path, mtimeMs, size)` stamp, not a defect in this choice, and the alternative
+is hashing the file on every check, which is the cost the policy exists to avoid.
+
+**Reversibility:** cheap.
+
+---
+
+## D37 — `location` records where the bytes came from (2026-08-07)
+
+**Context.** O15, in part. `meta.location` and `JsonLock.location` recorded the *requested*
+URL, so a redirect made the lockfile attest a digest to a location the bytes never came from,
+and a redirect flip changed content with no location signal.
+
+**Chosen.** Both record the final resolved location (I30). §1.1 already says a cache entry
+records the location it was resolved from, and a lookup resolving elsewhere is a miss; this
+makes the recorded value mean that.
+
+**Rejected.** Recording the requested URL, which is what a caller asked for and is stable
+across upstream changes — but the lockfile's whole job is attesting content to an origin, and
+attesting it to a URL that redirected elsewhere is an attestation about the wrong thing.
+
+**Still open.** Whether redirects are followed at all, and what happens to declared headers
+across an origin change, is `20-contract.md` §12 U2.
+
+**Reversibility:** expensive once lockfiles are committed.
+
+---
+
+## D38 — `preload`'s guarantee is scoped to the moment it was called (2026-08-07)
+
+**Context.** O23: a ttl source preloaded at boot and read 400 s later against a 300 s ttl,
+with the upstream now down, returned `ok: false`. D7's justification is that the process
+refuses to boot rather than 500 on first request, and §3.3 never stated that `preload` writes
+to the cache at all.
+
+**Chosen.** `preload` performs a full load per id and writes the cache under each entry's
+declared policy. Its guarantee is that every named id resolved once, at the moment it was
+called — not that it will resolve later.
+
+**Rejected.** Pinning preloaded entries so they never expire, which would make the boot
+guarantee durable but reintroduces stale-on-error through a side door (D18) and makes an
+entry's lifetime depend on how it was first read rather than on its declared policy.
+
+D7 stands as written: a process that boots is one whose configuration and upstreams were
+reachable at boot. Keeping a payload fresh afterwards is the cache policy's job, and
+declaring a ttl is declaring that a later failure is acceptable.
+
+**Reversibility:** cheap. Pinning could arrive later as a declared policy, which is the form
+it should have anyway.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -208,11 +834,15 @@ benefit. Precedent: `SubZeroDev.GameEngine` retains `W` for the same reason.
 
 ## Open register
 
-Items to revisit, in the shape `/track` can turn into issues.
+All items that were open here (O1, O3, O4, O5, O15, O16, O24, O25) were filed as GitHub issues
+by `/track` on 2026-08-07 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed
+from this table. Track them there.
 
-| | Question |
-|---|---|
-| **O1** | `useAuthenticatedFetch` owns 401-refresh, which `00-brief.md` §5.5 puts out of scope. J6.2 allows retaining it, but a second consumer needing authed loads makes "auth is the host's job" worth re-examining. |
-| **O2** | The `inline` source kind exists because bundlers `import` JSON at build. If `at: build` covers every real case after J6, `inline` may be redundant and removable before 1.0. |
-| **O3** | `stats()` returns hits and misses but nothing about eviction or size pressure. Adequate until a consumer caches enough to care. |
-| **O4** | Cross-checking the canonical serializer against the engine (I13) is a manual CI wiring problem across two repositories. It has no automation and will rot silently if J9 is far out. |
+O6–O23 were the 2026-08-07 red-team pass against `00-brief.md` and `10-design.md`.
+Fifteen of them — O6–O14 and O18–O23 — were adjudicated in the `/contract` pass of the same
+day and are now D22–D38, which also close the older O2. O17 was absorbed into O5, and O15 was
+split: its `location` half is settled as D37 and its redirect half is issue #16.
+
+`harness/` still reproduces the findings as originally reported — `node harness/run.mjs`, no
+install — and is now a regression corpus rather than a review: a probe that keeps passing
+after J1 means the amendment did not land. `harness/README.md` states what it is not.
