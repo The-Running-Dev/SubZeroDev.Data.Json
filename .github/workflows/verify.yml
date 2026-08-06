@@ -31,3 +31,24 @@ jobs:
           Import-Module Pester -MinimumVersion 5.0
           $result = Invoke-Pester -Path tools -Output Detailed -PassThru
           if ($result.FailedCount -gt 0) { exit 1 }
+
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Determinism guard (I1)
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test

@@ -3,6 +3,10 @@
 Thumbs.db
 *.log
 
+# Node
+node_modules/
+dist/
+
 # Per-machine Claude Code settings; the tracked settings.json is deliberate
 .claude/settings.local.json
 

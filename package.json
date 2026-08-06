@@ -1,0 +1,33 @@
+{
+  "name": "@subzerodev/data-json",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Source-agnostic JSON loader for TypeScript. Read-only.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/The-Running-Dev/SubZeroDev.Data.Json.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.5.0",
+    "vitest": "^4.0.0"
+  }
+}
