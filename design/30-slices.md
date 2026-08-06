@@ -2,89 +2,407 @@
 
 Ordered work units. `J` is this repository's slice prefix (`90-decisions.md` D10).
 
-Per-criterion ids (`J1.1`, `J1.2`) are stable: never reused, never renumbered.
+Per-criterion ids (`J1.1`, `J1.2`) are stable: never reused, never renumbered. A retired
+criterion leaves a gap and the gap is recorded below.
 
-**J1–J5 build it. J6+J7 prove it. J8–J9 are adoption.**
+**Slice numbers are identity, not sequence.** J1's original scope was the whole core; the
+`/contract` pass of 2026-08-07 added roughly twenty core-owned invariants to it, and it no
+longer fits one session. The work it shed became J10, J11, and J12 rather than renumbering
+anything, because `20-contract.md` §12, `90-decisions.md`, `10-design.md` §2, and
+`00-brief.md` all cite the existing ids. Read in the running order below, not in numeric
+order.
+
+**Running order:** J1 → J10 → J11 → J12 → J2 → J3 → J5 → J4 → J6+J7 → J8 → J9.
+
+**J1, J10–J12 are the core. J2, J3, J5 are the environments. J4 is blocked. J6+J7 prove it.
+J8–J9 are adoption.**
+
+J1 is first because it carries the two assumptions the whole design rests on and neither has
+been tested: the digest's byte-identity with the GameEngine's serializer, which
+`90-decisions.md` D14 marks expensive to reverse and `20-contract.md` §12 U4 records as
+unverified, and the claim that the core survives the determinism guard (I1). J10–J12 follow
+in ascending order of what a mistake in them costs to undo.
 
 ---
 
-## J1 — Core
+## J1 — Core: the inline pipeline, the canonical digest, and the determinism guard
 
-The loader, its ports, and the guard that keeps it honest. No environment, no dependencies.
+Delivers: The first working loader. A call site names a payload declared directly in
+configuration and gets back a result that says whether it worked, why not if it did not, and
+a content fingerprint of what came back — with the package reaching for nothing outside
+itself. This is also the exact loader a build hands to a runtime once it has already fetched
+everything (I33), so the newest mechanism in the design is the first one proven.
 
-**Contract:** `20-contract.md` §1–§5, §8 I1–I6, I10–I13
+**Contract:** `20-contract.md` §1–§3, §5, §6, §10; §8 I1–I6, I10, I11, I14, I23, I24, I31,
+I33 (runtime half), I34
+**Touches:** `src/core/`, the determinism guard config, the CI workflow, `package.json`
 **Depends on:** nothing
+**Blocked in part by:** §12 U4 (J1.5 only — the cross-check target is not in this tree)
 
 ### Done when
 
-- [ ] **J1.1** `load()` implements the full pipeline: resolve → fetch → parse → unwrap → validate → digest → cache → meta, each stage skippable by declaration.
-- [ ] **J1.2** `JsonResult`, `ReasonCode`, and `JsonMeta` match §1 exactly. `load()` never throws (I2).
-- [ ] **J1.3** All six ports are honoured, and all six are optional (§4).
-- [ ] **J1.4** `createJsonLoader` throws for `ttl` without `clock` and `jitter` without `rng` (I6).
-- [ ] **J1.5** Canonical serialization and `sha256` digest, byte-identical to the GameEngine's vectors (I5, I13).
-- [ ] **J1.6** Three cache policies — `manual`, `ttl`, `mtime` — with frozen entries (I12).
-- [ ] **J1.7** Retry with fixed and exponential backoff; jitter only via `rng`.
-- [ ] **J1.8** The determinism guard, copied from `src/engine/eslint.config.js`, runs against `src/core/` in CI and passes (I1).
-- [ ] **J1.9** Every invariant in §8 that applies to the core has a test that fails when the invariant is removed.
+- [ ] **J1.1** `load()` runs the `10-design.md` §3.1 pipeline for an `inline` entry — resolve,
+      unwrap, digest, freeze, validate, assemble — with each stage skipped only by
+      declaration, never by inference. No stage branches on `at`.
+- [ ] **J1.2** `JsonResult`, `ReasonCode`, `JsonMeta`, `JsonRequest`, and `JsonSource` match
+      §1–§3 exactly. `load()` never throws and never rejects (I2): a request naming an id
+      absent from the map returns `json.unresolved` with `provider: 'none'`, `location: ''`,
+      and `id: ''` when the request carried no usable id.
+- [ ] **J1.3** Every port is optional. `createJsonLoader(map)` with the `ports` argument
+      omitted entirely constructs and loads over a map of inline entries (I33, second half).
+- [ ] **J1.4** `createJsonLoader` throws `JsonError('config.missingPort')` naming the entry
+      and the port for each of the five cases in I6 — `fetch` for an http entry, `fs` for a
+      file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for a timeout
+      or non-zero delay — checked against exactly the entries in the map supplied and never a
+      wider set. Never a silent downgrade.
+- [ ] **J1.5** The core's canonical serializer is byte-identical to
+      `src/engine/src/core/persistence/canonical.ts` on that module's own test vectors (I13).
+      **Blocked by §12 U4** — that file is not in this tree and nobody who wrote this design
+      has read it. Do not guess at its behaviour; stop and report.
+- [ ] **J1.8** The determinism guard runs against `src/core/` in CI and passes (I1). The guard
+      is copied from `src/engine/eslint.config.js`, and `AbortController` is permitted as the
+      one named exception (D34) rather than by relaxing the rule.
+- [ ] **J1.9** Each of I1–I4, I5, I6, I10, I11, I14, I24, I31, I34 has a test that fails when
+      that invariant is removed from the implementation — demonstrated by removing it, not
+      asserted (`00-brief.md` §7.1).
+- [ ] **J1.10** Canonical serialization plus the core's own SHA-256: two payloads equal as
+      JSON values produce the same `digest` regardless of key order or whitespace, and two
+      that differ produce different digests (I5). The digest covers the post-unwrap,
+      pre-validation value (D14). The SHA-256 matches the published FIPS test vectors.
+- [ ] **J1.11** Every value `load` returns is deeply frozen — on a miss, with caching off,
+      after a validator transform, and on a fallback (I14, D21).
+- [ ] **J1.12** `unwrap` is never inferred from payload shape; absent means `'none'` and
+      `'none'` returns the parsed body exactly as parsed (I4). An `unwrap: 'subzerodev'`
+      envelope whose `success` is `false` yields `json.schema` carrying the envelope's own
+      error text in `message`; `ok: true` with `data: undefined` is unreachable (I34).
+- [ ] **J1.13** Configuration validation raises `JsonError('config.invalidEntry')` naming the
+      id and the field for: `version` not `1`, missing `at`, missing `cache` on an http or
+      file entry, `cache` present on an inline entry, more than one of `url`/`path`/`inline`,
+      an `mtime` policy on a non-file entry, and `retry.attempts < 1` (I31, I24, §10.1).
+- [ ] **J1.14** With `fallback` declared, `data` is non-null on every result whatever `ok`
+      says; without it, `data` is `null` on every failure (I3). For an inline source
+      `meta.provider` is `'inline'`, `bytes` is `0`, `attempts` is `0` (I11), and `validated`
+      is true only when a validator ran in this call and returned ok (I10).
+- [ ] **J1.15** `loadById` synthesizes a request from a map entry, and `loadMany` returns one
+      result per id and never rejects — one failing id does not deny the caller the others.
+
+**Retired:** J1.6 (three cache policies) is now J10.12. J1.7 (retry and backoff) is now
+J12.3. Neither id is reused.
+
+**Out of scope:** http and file resolution, and everything the cache implies — J10 and J12.
+Leave the provider branch for them unwritten rather than stubbing a reason code J10 would
+have to revert. Do not invent an export for the canonical serializer to satisfy J9.1; §9
+declares none, and that gap is recorded below. Do not attempt to resolve U4 by reconstructing
+what the engine's serializer probably does.
 
 ---
 
-## J2 — Node
+## J10 — The cache, and file sources through a port
 
-**Contract:** `20-contract.md` §9 (`/node`)
+Delivers: The loader stops re-reading things it already has. A payload read twice is
+transported once, three declared freshness policies decide when that stops being true, and a
+file that changes on disk stops being served from memory. This is also the first slice that
+reads anything from outside the process, through a filesystem port a test supplies.
+
+**Contract:** `20-contract.md` §3 `CachePolicy`, §4 `FileSystemPort`/`CacheEntry`/`CacheStore`,
+§5, §6 `FileCacheSpec`; §8 I12, I15, I16, I19, I25–I27, I29, I30 (file half), I32
+**Touches:** `src/core/`
 **Depends on:** J1
 
 ### Done when
 
-- [ ] **J2.1** `nodeFileSystem()` supplies `read`, `stat`, and `watch`.
-- [ ] **J2.2** `mtime` cache policy invalidates on `(path, mtimeMs, size)` and never returns a stale read.
-- [ ] **J2.3** `convertYamlToJson` reproduces the behaviour of both existing converters, recursive directories included, exposed as a CLI.
-- [ ] **J2.4** `jsonRouter` mounts GET routes only; no write verb is reachable.
-- [ ] **J2.5** `envelope()` produces the shape `unwrap: 'subzerodev'` consumes — verified by a round-trip test, which is the point of owning both ends.
-- [ ] **J2.6** `preload()` rejects on any failure and resolves otherwise.
+- [ ] **J10.1** A `file` entry resolves through `FileSystemPort.read`. A path that does not
+      exist yields `json.notFound` and is not retried; a permission or IO failure yields
+      `json.transport` (`10-design.md` §4.1). `meta.bytes` is the UTF-8 byte length as read
+      and `meta.location` is the path the bytes came from (I30).
+- [ ] **J10.2** `manual` hits until `invalidate`. `ttl` hits while the injected clock says the
+      entry is inside its window and misses outside it. `mtime` hits while
+      `(path, mtimeMs, size)` is unchanged.
+- [ ] **J10.3** The `mtime` stamp is captured by `stat` **before** the read, never after
+      (I25, D36). A `stat` failure is treated as a miss and the read proceeds, with the read's
+      own outcome authoritative; the resulting entry carries a null stamp, and a null stamp is
+      never a hit.
+- [ ] **J10.4** The cache line holds the post-unwrap, pre-validation value (I15, D13). Two
+      call sites reading one id with different validators each get their own validated value
+      from one shared entry, and `meta.validated` reflects the call, never the entry. A hit
+      returns data equal to the first success for an equal validator, with `meta.cached` true
+      and `meta.attempts` `0` (I12, I11).
+- [ ] **J10.5** The cache key is the source id scoped to the loader instance. An entry records
+      the source it resolved from, and a lookup whose request resolves elsewhere is a miss. A
+      request supplying its own `source` is neither read from, written to, nor stored in the
+      cache (I16).
+- [ ] **J10.6** One `CacheStore` handed to two loaders serves neither the other's entries, and
+      `invalidate` on either leaves the other's intact (I29, D35). The loader never calls
+      `CacheStore.clear()`.
+- [ ] **J10.7** `invalidate(id)` drops that id; `invalidate()` bumps this loader's epoch and
+      drops only keys this loader owns, including keys that hold no entry yet. `stats()`
+      returns `entries`, `hits`, and `misses`.
+- [ ] **J10.8** A failed load neither populates nor evicts the cache. A stale entry is not a
+      hit and is not deleted, and no failure path returns it (I19, D18).
+- [ ] **J10.9** A `digest: true` request against an entry stored without one computes the
+      digest from the cached value and memoizes it into the entry. It never re-transports, and
+      never returns `digest: null` under `ok: true` (I32, D29).
+- [ ] **J10.10** `dispose()` unsubscribes every watcher this loader registered, drops this
+      loader's cache keys, and is idempotent; `[Symbol.dispose]` does the same. A watch is
+      registered lazily on the first successful read of a file entry declaring an `mtime`
+      policy, never at construction (I26, D31).
+- [ ] **J10.11** A file body exceeding a declared `maxBytes` yields `json.tooLarge`, is not
+      retried, and writes nothing to the cache (I27).
+- [ ] **J10.12** The three `FileCacheSpec` forms — `'manual'`, `{ ttlMs }`, `{ mtime: true }` —
+      each drive the behaviour named above, and entries are frozen on every path (I14 still
+      holds through the cache).
+- [ ] **J10.13** Each of I12, I15, I16, I19, I25, I26, I27, I29, I32 has a test that fails
+      when that invariant is removed.
+
+**Out of scope:** http (J12), single-flight and the generation guard (J11), and the real Node
+filesystem port (J2) — use a fake port here, which is what makes `mtime` testable without
+real elapsed time. Do not add a `keys()` member to `CacheStore` to make `invalidate()`
+enumerable; D35 rejected that and put the epoch in the loader instead.
 
 ---
 
-## J3 — Build
+## J11 — Single-flight and the generation guard
 
-**Contract:** `20-contract.md` §6, §7, §8 I7–I9
-**Depends on:** J2
+Delivers: Three components mounting at once and reading the same payload cause one read, not
+three, and they all get the same value. Asking the loader to forget something while it is
+mid-read actually forgets it, instead of the forgotten value reappearing a moment later.
+
+**Contract:** `20-contract.md` §8 I11 (joined caller), I16, I17; `10-design.md` §5
+**Touches:** `src/core/`
+**Depends on:** J10
 
 ### Done when
 
-- [ ] **J3.1** `prefetch` resolves every `at: build` source, writes it to `outDir`, and returns a `JsonLock`.
-- [ ] **J3.2** The lockfile matches §7. `resolvedAt` is written and read by nothing (I8 depends on this).
-- [ ] **J3.3** Two builds over unchanged remote bytes produce identical digests; changed bytes produce a changed digest.
-- [ ] **J3.4** `assertNoServerSourcesInBundle` fails the build when any `sources.server.yml` entry reaches the public output (I7).
-- [ ] **J3.5** A source missing `at:` is a configuration error naming the offending id.
-- [ ] **J3.6** `at: build` is never fetched at runtime and `at: runtime` never resolved at build (I8).
+- [ ] **J11.1** Concurrent misses for one cache key issue exactly one transport. The rest join
+      that load and receive the same frozen value (I17, D15).
+- [ ] **J11.2** A joined caller's `meta.attempts` reports the attempts made by the load it
+      joined, and its `meta.cached` is `false` (I11).
+- [ ] **J11.3** A load stamps the generation it started under and compares before storing. An
+      `invalidate` during an in-flight load means the result is returned to every caller and
+      nothing is written to the cache (I17, D15).
+- [ ] **J11.4** A watch callback firing mid-load invalidates through the same path and is
+      covered by the same guard (`10-design.md` §5).
+- [ ] **J11.5** A request supplying its own `source` is never joined to an in-flight load and
+      never joined against (I16).
+- [ ] **J11.6** Validation still runs per caller against the shared value, so two joiners with
+      different validators do not share a schema (`10-design.md` §1.4).
+- [ ] **J11.7** Each of I17 and the joined-caller half of I11 has a test that fails when that
+      invariant is removed. Interleaving is driven by a deferred fake port, not by elapsed
+      time.
+
+**Out of scope:** a concurrency bound on fan-out. §12 U5 leaves it undetermined and nothing
+here may invent one — record what the unbounded behaviour does and stop.
 
 ---
 
-## J4 — React
+## J12 — HTTP sources: timeout, retry, size bound, and refusing to boot
 
-**Contract:** `20-contract.md` §9 (`/react`)
-**Depends on:** J1
+Delivers: The loader can read from the network, and it does so on a declared budget — one
+attempt gives up after a stated time, failures worth retrying are retried and failures that
+are not are reported immediately, and a response too large to accept is refused rather than
+loaded. A server can also demand that everything it cannot serve without resolved before it
+finishes starting.
+
+**Contract:** `20-contract.md` §3 `RetryPolicy`, §4 `ScheduledWait`, §5 `preload`, §6 http
+entry, §10; §8 I18, I20, I24, I27, I30
+**Touches:** `src/core/`
+**Depends on:** J11
+**Blocked in part by:** §12 U2 (redirect policy) and §12 U5 (fan-out bound). §12 names J1 for
+both; under this ordering they land here.
 
 ### Done when
 
-- [ ] **J4.1** `useJson(id)` returns the core's `JsonResult` plus `loading` and `refetch` — not a reshaped parallel type.
-- [ ] **J4.2** `JsonBoundary` renders loading and error states from `reason`, not from message strings.
-- [ ] **J4.3** No `Date.now` or `Math.random` in a render path or a hook dependency array — the existing `HttpDataProvider` calls `Date.now()` inside a `useMemo` dependency and that is not reproduced.
-- [ ] **J4.4** Unmounting aborts an in-flight request; no state update after unmount.
-- [ ] **J4.5** The same call site compiles and behaves identically under either `at:` value (I9).
+- [ ] **J12.1** An `http` entry resolves through the fetch port. A non-2xx response yields
+      `json.status`; a rejected fetch yields `json.transport`; a truncated or non-JSON 2xx
+      body yields `json.parse` and is not retried. `meta.location` records the location the
+      bytes came from, not the location requested (I30, D37).
+- [ ] **J12.2** `timeoutMs` bounds each attempt and never the call (I18, D16), waiting through
+      the `schedule` port. A timed-out attempt is aborted with `AbortController` rather than
+      abandoned (D34), and the scheduled wait is cancelled when the attempt settles first so
+      no live timer outlives it (D23).
+- [ ] **J12.3** Retry applies only to `json.transport`, `json.timeout`, and statuses 408, 429,
+      and 5xx — never to other 4xx, `json.parse`, `json.schema`, `json.notFound`, or
+      `json.tooLarge` (I18, D16). `backoff` supports `'fixed'` and `'exponential'`; `jitter`
+      draws only from the `rng` port and never from an ambient source.
+- [ ] **J12.4** A body exceeding a declared `maxBytes` yields `json.tooLarge`, checked against
+      `Content-Length` where present and against the decoded length always, not retried and
+      not cached (I27, D33). Absent `maxBytes` is unbounded — no default is invented.
+- [ ] **J12.5** `preload` performs a full load per id, writes the cache under each entry's
+      declared policy, resolves every id before failing, and rejects with
+      `JsonError('preload.failed')` naming every failed id in `failures` — never only the
+      first (I20, D17). It is the only member of `JsonLoader` that rejects.
+- [ ] **J12.6** A ttl entry preloaded at boot and read after its window expires fails like any
+      other expired entry. `preload`'s guarantee is that every named id resolved once, at the
+      moment it was called (D38) — assert this rather than leaving it to be discovered.
+- [ ] **J12.7** Nothing in the core throws a bare `Error` or a string; every throw and every
+      rejection is a `JsonError` with an enumerated `code` (I24), and `load` still throws
+      nothing at all (I2).
+- [ ] **J12.8** Each of I18, I20, I27, I30 has a test that fails when that invariant is
+      removed, driven by a fake fetch port and a fake scheduler — no test waits on real
+      elapsed time.
+
+**Out of scope:** redirect policy, including whether redirects are followed and what happens
+to a declared header across an origin change — §12 U2 is undetermined and this slice records
+the observed behaviour of whatever fetch port it is handed rather than specifying one.
+Streaming and chunking are F5. A total-call timeout was rejected by D16 and is not to be
+added as a convenience.
+
+---
+
+## J2 — Node: filesystem port, composed ports, GET-only mount, YAML CLI
+
+Delivers: Everything a Node process needs to use the loader for real — a filesystem port
+backed by the actual disk, a one-call set of ports wired to the Node runtime, a read-only
+HTTP mount that serves loaded payloads and translates failures into honest status codes, and
+the YAML-to-JSON conversion that replaces the two hand-rolled converters this package exists
+to retire.
+
+**Contract:** `20-contract.md` §9 (`/node`); §8 I24, I25, I28
+**Touches:** `src/node/`
+**Depends on:** J10 (for the `mtime` policy the port serves), J12 (for the router's failure
+mapping)
+**Blocked in part by:** §12 U3 (J2.3 only — no YAML parser has been chosen)
+
+### Done when
+
+- [ ] **J2.1** `nodeFileSystem()` supplies `read`, `stat`, and `watch`, and `watch` returns a
+      working unsubscribe.
+- [ ] **J2.2** Against a real file on disk, the `mtime` policy invalidates on
+      `(path, mtimeMs, size)` and never returns a stale read; the stamp is taken before the
+      read (I25, D36). D36's known-and-retained limit — a same-size edit inside the
+      filesystem's mtime resolution — is written into the test as a documented gap, not left
+      to be rediscovered as a bug.
+- [ ] **J2.3** `convertYamlToJson(from, to)` reproduces the behaviour of both existing
+      converters, recursive directories included, and is exposed as a CLI.
+      **Blocked by §12 U3** — the parser is an undeclared dependency and `90-decisions.md`
+      requires an entry naming the alternatives rejected before one is added.
+- [ ] **J2.4** `jsonRouter` mounts GET routes only. No write verb is reachable through it, and
+      the package writes nothing at runtime (`00-brief.md` §5.1).
+- [ ] **J2.5** `envelope()` produces the shape `unwrap: 'subzerodev'` consumes, verified by a
+      round-trip test — owning both ends is the point (D28).
+- [ ] **J2.7** The router maps reason to status per I28 and never forwards the upstream
+      status (D20): `json.unresolved` and `json.notFound` to 404; `json.timeout` and
+      `json.transport` to 504; `json.status`, `json.parse`, `json.schema`, and
+      `json.tooLarge` to 502.
+- [ ] **J2.8** `nodePorts(overrides?)` composes `fetch`, `fs`, `clock`, `rng`, and `schedule`
+      from the Node runtime, with any supplied override winning. A loader constructed with it
+      satisfies I6 for any entry kind.
+- [ ] **J2.9** Every throw originating in `/node` is a `JsonError` with an enumerated code
+      (I24). No bare `Error`, no string.
+
+**Retired:** J2.6 (`preload` rejects on any failure) belonged to the core and is now J12.5.
+The id is not reused.
+
+**Out of scope:** write support of any kind — D5 and `00-brief.md` §5.1 are binding, and F2
+gates it on a second consumer. Do not add a write member to `FileSystemPort` to make the
+build's job easier; D19 rejected exactly that. A YAML-to-`SourceMap` reader is not in §9 —
+see the contract gaps below.
+
+---
+
+## J3 — Build: prefetch, lockfile, derived runtime map, and the gates
+
+Delivers: The build resolves every payload declared as build-time, writes them next to the
+application, and records what it got in a committed lockfile so two builds over unchanged
+content are provably identical. It also emits a rewritten configuration in which those
+payloads are already present, so the running application resolves them without any network or
+disk at all — and it refuses to finish if a server-only source has reached anything a browser
+can read.
+
+**Contract:** `20-contract.md` §6, §7, §9 (`/build`), §11; §8 I7, I8, I20, I21, I22, I23,
+I30, I33
+**Touches:** `src/build/`, the CI workflow
+**Depends on:** J1, J12
+**Blocked in part by:** §12 U2 (redirect policy affects what the lockfile attests)
+
+### Done when
+
+- [ ] **J3.1** `prefetch(map, outDir, ports)` resolves every `at: build` source with digests
+      requested, writes one artifact per source into `outDir`, and returns
+      `PrefetchOutput { lock, runtimeMap }`. Exactly one source map is read per pass — public
+      or server, never both (`10-design.md` §3.2).
+- [ ] **J3.2** The lockfile matches §7. `resolvedAt` is written and read by nothing, and no
+      behaviour anywhere depends on it.
+- [ ] **J3.3** Two builds over unchanged remote bytes produce identical digests **and a
+      byte-identical lockfile**, with entries emitted in sorted-id order through the canonical
+      serializer (I21). Changed bytes produce a changed digest and a diff that means something.
+- [ ] **J3.4** `assertNoServerSourcesInBundle` throws `JsonError('build.serverSourceLeaked')`
+      naming the offending id and file when any `sources.server.yml` entry reaches the public
+      output (I7). Asserted in CI, not by convention.
+- [ ] **J3.5** A source missing `at:` is `config.invalidEntry` naming the offending id, and
+      the build fails.
+- [ ] **J3.6** An `at: build` source is never fetched at runtime and an `at: runtime` source is
+      never resolved at build (I8).
+- [ ] **J3.7** Every `at: build` entry in the emitted `runtimeMap` has become an inline entry
+      carrying the resolved data. A loader constructed from that map with the `ports` argument
+      omitted resolves those ids, and no stage of the pipeline branches on `at` (I33, D24).
+- [ ] **J3.8** The public/server gate runs after the last write into the public output
+      directory (I22), demonstrated by a test in which a later writer would otherwise have
+      slipped a leak past it.
+- [ ] **J3.9** `assertNoDuplicateIds` throws `JsonError('config.duplicateId')` naming the id
+      and both files when one id appears in both the public and the server map (I23).
+- [ ] **J3.10** A failure in any `at: build` source fails the build with
+      `JsonError('build.failed')` naming **every** failed id (I20, D17). Nothing is written and
+      the previous build output is untouched.
+
+**Out of scope:** importing `/node`. `10-design.md` §2 states `/build` does not depend on it —
+`/build` reads through whatever ports it is handed and writes with the Node runtime directly
+(D19). The consumer composes the two, not the module graph. Do not read both source maps in
+one pass to save a step.
 
 ---
 
 ## J5 — Zod
 
+Delivers: A consumer with a zod schema can hand it to the loader directly, without the
+package knowing anything about zod and without a zod-free consumer paying for it.
+
 **Contract:** `20-contract.md` §9 (`/zod`)
+**Touches:** `src/zod/`, `package.json` peer dependencies
 **Depends on:** J1
 
 ### Done when
 
-- [ ] **J5.1** `zodValidator(schema)` returns a `Validator<T>`; a failure yields `reason: 'json.schema'` with the zod message in `message`.
-- [ ] **J5.2** zod is a peer dependency. A consumer importing only the core or `/node` does not resolve it.
+- [ ] **J5.1** `zodValidator(schema)` returns a `Validator<T>`. A failure yields
+      `reason: 'json.schema'` with the zod message in `message`, and a schema that throws is
+      caught and reported the same way (§10.2).
+- [ ] **J5.2** zod is an optional peer dependency. A consumer importing only the core or
+      `/node` does not resolve it.
+
+**Out of scope:** authoring schemas, or shipping any. `00-brief.md` §5.6 makes validation a
+seam and schemas the consumer's. Do not re-export zod types through the core.
+
+---
+
+## J4 — React *(blocked)*
+
+Delivers: A React component reads a named payload with one hook and renders loading, error,
+and success states from the reason code rather than from a message string.
+
+**Contract:** `20-contract.md` §9 (`/react`)
+**Touches:** `src/react/`, `package.json` peer dependencies
+**Depends on:** J1
+**Blocked by:** §12 U1 — how `useJson(id)` reaches a `JsonLoader` is undecided. A context
+provider or a loader parameter is a new public interface and the design names neither. This
+slice cannot start, and nothing in it may invent the missing signature. See the routing note
+below.
+
+### Done when
+
+- [ ] **J4.1** `useJson(id)` returns the core's `JsonResult` plus `loading` and `refetch` —
+      not a reshaped parallel type.
+- [ ] **J4.2** `JsonBoundary` renders loading and error states from `reason`, not from message
+      strings.
+- [ ] **J4.3** No `Date.now` or `Math.random` in a render path or a hook dependency array —
+      the existing `HttpDataProvider` calls `Date.now()` inside a `useMemo` dependency and
+      that is not reproduced.
+- [ ] **J4.4** Unmounting aborts an in-flight request; no state update after unmount.
+- [ ] **J4.5** The same call site compiles and behaves identically under either `at:` value
+      (I9).
+
+**Out of scope:** deciding U1. That is a contract amendment and belongs to `/contract`, not to
+an implementing session. Do not add a store binding on the way past — `00-brief.md` §6 mentions
+an optional store binding and `20-contract.md` §9 exports none, so it is not in this slice.
 
 ---
 
@@ -93,34 +411,71 @@ The loader, its ports, and the guard that keeps it honest. No environment, no de
 **One gate, both consumers.** Landing the browser first lets the core accrete browser
 assumptions, and the isomorphism claim then becomes retroactive (`10-design.md` §2).
 
+Delivers: The two repositories this package was written for stop carrying their own loaders.
+Four divergent HTTP paths, three unrelated cache policies, two copies of the same
+provider-selection function, and the untyped file reads behind the API all become one
+declared configuration and one call. The line count goes down; if it does not, the design is
+wrong.
+
 **Contract:** all of `20-contract.md`
-**Depends on:** J2, J3, J4, J5
+**Touches:** `Docs-Template`, `Portfolio`, `Portfolio/api`, `config/sources.public.yml`,
+`config/sources.server.yml`
+**Depends on:** J2, J3, J4, J5 — and therefore transitively **blocked by §12 U1** through J4
 
 ### Done when
 
-- [ ] **J6.1** These are deleted: `src/services/dataLoader.ts`, `src/context/HttpDataProvider.tsx`, `src/hooks/useApi.ts`, both copies of `getProviderType`, and the `getData` content-keyed cache.
-- [ ] **J6.2** `useAuthenticatedFetch` either composes with the loader or is retained deliberately, with its retention recorded — it owns 401-refresh, which is out of scope here (`00-brief.md` §5.5).
-- [ ] **J6.3** `DataProvider` survives as feature-gate composed with `useJson`, not as a component that also picks a provider, fetches, caches, and unwraps.
-- [ ] **J6.4** `projectsPage.source`, `portfolioPage.source`, and `cvPage.source` move to `config/sources.public.yml`; the `FeatureToConfigMap` source lookup is gone.
+- [ ] **J6.1** These are deleted: `src/services/dataLoader.ts`,
+      `src/context/HttpDataProvider.tsx`, `src/hooks/useApi.ts`, both copies of
+      `getProviderType`, and the `getData` content-keyed cache.
+- [ ] **J6.2** `useAuthenticatedFetch` either composes with the loader or is retained
+      deliberately, with its retention recorded — it owns 401-refresh, which is out of scope
+      here (`00-brief.md` §5.5).
+- [ ] **J6.3** `DataProvider` survives as feature-gate composed with `useJson`, not as a
+      component that also picks a provider, fetches, caches, and unwraps.
+- [ ] **J6.4** `projectsPage.source`, `portfolioPage.source`, and `cvPage.source` move to
+      `config/sources.public.yml`; the `FeatureToConfigMap` source lookup is gone.
 - [ ] **J6.5** Every remote payload has a declared schema and passes it.
-- [ ] **J6.6** Every existing HTTP source has an explicit `at:` — a migration decision per source, not a default.
-- [ ] **J6.7** The `{ success, data }` heuristic is gone; call sites that need it declare `unwrap: 'subzerodev'`.
-- [ ] **J7.1** `FileUtils.readJsonFile` and `fileExists` are replaced by the loader. `JsonFileRepository` keeps its filter, sort, paginate, and write logic.
+- [ ] **J6.6** Every existing HTTP source has an explicit `at:` — a migration decision per
+      source, not a default (D3).
+- [ ] **J6.7** The `{ success, data }` heuristic is gone; call sites that need it declare
+      `unwrap: 'subzerodev'`.
+- [ ] **J6.8** Every migrated source declares an explicit `cache:` (I31, D32). In particular
+      `HttpDataProvider`'s 5-minute TTL is carried across as `cache: { ttlMs: 300000 }` or
+      changed on purpose with the change recorded — D32 names this exact source as the one a
+      line-deleting migration would silently turn static.
+- [ ] **J7.1** `FileUtils.readJsonFile` and `fileExists` are replaced by the loader.
+      `JsonFileRepository` keeps its filter, sort, paginate, and write logic.
 - [ ] **J7.2** Per-request full-file reads are replaced by `mtime`-cached reads.
-- [ ] **J7.3** `JsonFileRepository`'s lost-update race and mid-write truncation are **recorded in that repository** as known-and-retained, with the reasoning. They are out of scope here (`90-decisions.md` D5) and must not simply disappear from the record.
+- [ ] **J7.3** `JsonFileRepository`'s lost-update race and mid-write truncation are **recorded
+      in that repository** as known-and-retained, with the reasoning. They are out of scope
+      here (`90-decisions.md` D5) and must not simply disappear from the record.
 - [ ] **J7.4** Both YAML→JSON converters are replaced by the J2 CLI.
-- [ ] **J7.5** **The migration deletes more lines than it adds.** If it does not, stop: the design is wrong and this is where that surfaces (`00-brief.md` §7.3).
+- [ ] **J7.5** **The migration deletes more lines than it adds.** If it does not, stop: the
+      design is wrong and this is where that surfaces (`00-brief.md` §7.3).
+
+**Out of scope:** fixing the `JsonFileRepository` defects J7.3 records. D5 leaves them
+unowned deliberately, and repairing them here converts a scoping decision into an unreviewed
+one. Do not migrate `Data` on the way past — that is J8.
 
 ---
 
 ## J8 — Data repository adopts the CLI
 
+Delivers: The content repository stops maintaining its own YAML-to-JSON step and uses the
+published one, with proof that the files it publishes did not change in the process.
+
+**Touches:** `Data/build.ts`
 **Depends on:** J2
 
 ### Done when
 
-- [ ] **J8.1** `Data/build.ts` uses the published CLI; its bespoke `processYamlToJson` is deleted.
-- [ ] **J8.2** Published artifact bytes are unchanged from before the migration — asserted, not assumed.
+- [ ] **J8.1** `Data/build.ts` uses the published CLI; its bespoke `processYamlToJson` is
+      deleted.
+- [ ] **J8.2** Published artifact bytes are unchanged from before the migration — asserted,
+      not assumed.
+
+**Out of scope:** changing what `Data` publishes. A byte difference here is a defect in J2.3,
+not an improvement to the content.
 
 ---
 
@@ -129,10 +484,60 @@ assumptions, and the isomorphism claim then becomes retroactive (`10-design.md` 
 **Gated on content packs existing.** v1 makes this possible; it does not schedule it.
 Nothing in J1–J8 may depend on J9.
 
+Delivers: The game engine deletes its own copy of the canonical serializer and imports this
+one, retiring a duplication that has been deliberate and dated since D9, and starts using
+build digests as content-pack identity.
+
+**Touches:** `SubZeroDev.GameEngine`
 **Depends on:** J1, and a GameEngine consumer that actually loads JSON
+**Blocked by:** §12 U4, and by the missing export recorded below
 
 ### Done when
 
-- [ ] **J9.1** The engine imports the package's canonical serializer and deletes `src/engine/src/core/persistence/canonical.ts`, retiring the I13 duplication.
+- [ ] **J9.1** The engine imports the package's canonical serializer and deletes
+      `src/engine/src/core/persistence/canonical.ts`, retiring the I13 duplication.
 - [ ] **J9.2** The engine's determinism harness passes with the package in the graph.
-- [ ] **J9.3** `json.lock` digests feed content-pack identity. The engine owns `campaignVersion` semantics; this package supplies the digest primitive and nothing above it (`00-brief.md` §5.7).
+- [ ] **J9.3** `json.lock` digests feed content-pack identity. The engine owns
+      `campaignVersion` semantics; this package supplies the digest primitive and nothing
+      above it (`00-brief.md` §5.7).
+
+**Out of scope:** `campaignVersion` semantics, content-pack resolution, and anything above the
+digest — `00-brief.md` §5.7 is binding in both directions.
+
+---
+
+## Regression corpus
+
+`harness/` reproduces the red-team findings as originally reported (`node harness/run.mjs`,
+no install). It is not `src/` and nothing in it moves there (`harness/README.md`).
+
+Once the core slices land, a probe that **keeps** reproducing means an amendment did not
+land. That check belongs at the end of J12, when the core is complete: run the harness
+against the real core and account for every probe that still reproduces, either as a genuine
+regression or as a finding the design accepted. Probes for findings still open — F9
+(redirects, U2), F11 (fan-out, U5), F10 (untestable, U4) — are expected to keep reproducing
+and are not regressions.
+
+## Contract gaps this pass surfaced
+
+Recorded, not resolved. None is invented here, and no slice above may invent a signature for
+one (`AGENTS.md`, *Hard rules*).
+
+1. **Nothing turns `sources.*.yml` into a `SourceMap`.** `20-contract.md` §10.1 says
+   `config.invalidEntry` is raised by "`/node` when reading YAML", but §9 exports no reader.
+   `convertYamlToJson(from, to)` converts files, not configuration. J3.1 takes a `SourceMap`
+   already in memory and J6.4 puts sources into YAML, so something has to bridge them.
+   Affects J2, J3, J6.4.
+2. **J9.1 requires an export §9 does not declare.** "The engine imports the package's
+   canonical serializer" needs a public canonical-serialization function; §9 lists none, and
+   I13 describes the serializer only as an internal property. Affects J1.5, J9.1.
+3. **`meta.location` for an `inline` source is unspecified.** §1.3 gives `location` an empty
+   string only when nothing resolved, and `bytes` is explicitly `0` for inline, but nothing
+   says what an inline source's location is. Affects J1.14.
+
+Two routing notes, for the same reason:
+
+- §12's *Blocks* column names **J1** for U2 and U5. Under this ordering the http work is J12
+  and the fan-out is J10 and J12; the U-items themselves are unchanged.
+- The previous revision gave J3 `Depends on: J2`, which contradicts `10-design.md` §2's
+  "`/build` does not depend on `/node`". Corrected above to J1 and J12.
