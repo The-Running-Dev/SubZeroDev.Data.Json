@@ -834,24 +834,14 @@ it should have anyway.
 
 ## Open register
 
-Items to revisit, in the shape `/track` can turn into issues.
-
-| | Question |
-|---|---|
-| **O1** | `useAuthenticatedFetch` owns 401-refresh, which `00-brief.md` §5.5 puts out of scope. J6.2 allows retaining it, but a second consumer needing authed loads makes "auth is the host's job" worth re-examining. |
-| **O3** | `stats()` returns hits and misses but nothing about eviction or size pressure. Adequate until a consumer caches enough to care. Recorded as a known limit in `20-contract.md` §12 U6. |
-| **O4** | Cross-checking the canonical serializer against the engine (I13) is a manual CI wiring problem across two repositories. It has no automation and will rot silently if J9 is far out. |
-| **O5** | `preload`, `prefetch`, and `loadMany` fan out with no concurrency limit (D17), on the assumption that a source map is hand-written and therefore small. Nothing enforces that assumption, and `loadMany` takes a caller-sized array the assumption does not reach — 200 ids opened 200 simultaneous reads in probe F11, which on a real filesystem port is EMFILE reported as an upstream outage. Absorbs the former O17. `20-contract.md` §12 U5. |
-| **O15** | **Redirect policy.** No redirect mode is specified, so a fetch port follows by default and only `Authorization`, `Cookie` and `Proxy-Authorization` are stripped cross-origin — a custom `X-Api-Key` reached a different origin in probe F9. What `location` records was settled by D37; whether redirects are followed, and what happens to a declared header across an origin change, is not. `20-contract.md` §12 U2. |
-| **O16** | I13 and `00-brief.md` §7.7 commit the core's serializer to byte-identity with `src/engine/src/core/persistence/canonical.ts`, which nobody who wrote this design has read — §7 Q4 states the repository is not in this tree. If the engine's canonical form covers a value domain wider than parsed JSON, or differs on key ordering, escaping or number formatting, that propagates into the digest, which D14 marks expensive to reverse. O4 records that the cross-check has no automation; this records that the target is unread. Not reproducible in `harness/`. `20-contract.md` §12 U4. |
-| **O24** | **Which YAML parser** (`10-design.md` §7 Q3). `/node`'s conversion needs one and the design recommends a normal dependency of `/node` only, leaving the core at zero — but names no parser and records no decision. A dependency needs an entry naming the alternatives rejected, before J2. `20-contract.md` §12 U3. |
-| **O25** | **How `useJson(id)` reaches a `JsonLoader`.** `10-design.md` §2 gives `/react` only `useJson` and `JsonBoundary`; a context provider or a loader parameter is a new public interface the design names nowhere. Blocks J4. `20-contract.md` §12 U1. |
+All items that were open here (O1, O3, O4, O5, O15, O16, O24, O25) were filed as GitHub issues
+by `/track` on 2026-08-07 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed
+from this table. Track them there.
 
 O6–O23 were the 2026-08-07 red-team pass against `00-brief.md` and `10-design.md`.
 Fifteen of them — O6–O14 and O18–O23 — were adjudicated in the `/contract` pass of the same
 day and are now D22–D38, which also close the older O2. O17 was absorbed into O5, and O15 was
-split: its `location` half is settled as D37 and its redirect half stays open above. O24 and
-O25 are new, raised by writing the contract rather than by the red-team pass.
+split: its `location` half is settled as D37 and its redirect half is issue #16.
 
 `harness/` still reproduces the findings as originally reported — `node harness/run.mjs`, no
 install — and is now a regression corpus rather than a review: a probe that keeps passing
