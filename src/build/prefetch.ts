@@ -23,11 +23,19 @@ interface Resolved {
  * resolved `at: build` entry becomes `{ inline: <resolved data> }` there (I33, D24).
  */
 export async function prefetch(map: SourceMap, outDir: string, ports: JsonPorts): Promise<PrefetchOutput> {
-  const loader = createJsonLoader(map, ports);
-
   const buildIds = Object.entries(map.sources)
     .filter(([, entry]) => entry.at === 'build')
     .map(([id]) => id);
+
+  // Excludes only at:runtime, not just at:build, so a malformed entry (missing or invalid
+  // `at`) still reaches normalizeSourceMap's validation instead of being silently dropped.
+  const loaderMap: SourceMap = {
+    version: map.version,
+    sources: Object.fromEntries(
+      Object.entries(map.sources).filter(([, entry]) => entry.at !== 'runtime'),
+    ),
+  };
+  const loader = createJsonLoader(loaderMap, ports);
 
   const results = await Promise.all(buildIds.map((id) => loader.load({ id, digest: true })));
 

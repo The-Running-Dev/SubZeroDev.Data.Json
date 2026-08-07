@@ -6,22 +6,6 @@ import { JsonError } from '../core/index.js';
 import type { JsonPorts, SourceMap } from '../core/index.js';
 import { prefetch } from './prefetch.js';
 
-/**
- * Present only to satisfy I6 for the map's `at: runtime` http entry, which declares a default
- * `timeoutMs` and so needs a `schedule` port too — a call to either here is a defect (I8: an
- * `at: runtime` source is never resolved at build).
- */
-function unusedHttpPorts(): Pick<JsonPorts, 'fetch' | 'schedule'> {
-  return {
-    fetch: () => {
-      throw new Error('fetch must not be called: at:runtime sources are never resolved at build (I8)');
-    },
-    schedule: () => {
-      throw new Error('schedule must not be called: at:runtime sources are never resolved at build (I8)');
-    },
-  };
-}
-
 function fakeFs(files: Record<string, string>): NonNullable<JsonPorts['fs']> {
   return {
     async read(path: string): Promise<string> {
@@ -59,7 +43,7 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
   };
 
   it('J3.1 resolves every at:build source with a digest and writes one artifact per source', async () => {
-    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }), ...unusedHttpPorts() };
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
 
     const output = await prefetch(map, outDir, ports);
 
@@ -72,7 +56,7 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
   });
 
   it('J3.2 writes resolvedAt but nothing reads it back for behaviour', async () => {
-    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }), ...unusedHttpPorts() };
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
 
     const output = await prefetch(map, outDir, ports);
 
@@ -81,7 +65,7 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
   });
 
   it('J3.6 never resolves an at:runtime source at build', async () => {
-    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }), ...unusedHttpPorts() };
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
 
     const output = await prefetch(map, outDir, ports);
 
@@ -89,10 +73,16 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
     expect(output.runtimeMap.sources['liveStatus']).toEqual(map.sources['liveStatus']);
   });
 
+  it('I6/I8: an at:runtime http entry needs no fetch or schedule port to build (D43)', async () => {
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
+
+    const output = await prefetch(map, outDir, ports);
+
+    expect(output.lock.sources['projects']?.digest).toMatch(/^sha256-[0-9a-f]{64}$/);
+  });
+
   it('J3.7 rewrites at:build entries to inline, resolvable by a portless loader', async () => {
-    // A map of only at:build sources, so the resulting runtimeMap needs no port at all — the
-    // liveStatus at:runtime entry in `map` above still needs fetch/schedule to *construct* a
-    // loader over it (I6), which is a separate concern from whether the built ids resolve.
+    // A map of only at:build sources, so the resulting runtimeMap needs no port at all.
     const buildOnlyMap: SourceMap = {
       version: 1,
       sources: { projects: { at: 'build', path: '/projects.json', cache: 'manual' } },
@@ -112,7 +102,7 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
   });
 
   it('J3.3 two builds over unchanged bytes produce identical digests and a byte-identical lockfile', async () => {
-    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }), ...unusedHttpPorts() };
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
 
     const first = await prefetch(map, outDir, ports);
     const firstLock = await readFile(join(outDir, 'json.lock'), 'utf8');
@@ -129,11 +119,11 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
   });
 
   it('J3.3 changed bytes produce a changed digest', async () => {
-    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }), ...unusedHttpPorts() };
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
     const first = await prefetch(map, outDir, ports);
 
     await rm(outDir, { recursive: true, force: true });
-    const ports2: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":3}' }), ...unusedHttpPorts() };
+    const ports2: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":3}' }) };
     const second = await prefetch(map, outDir, ports2);
 
     expect(second.lock.sources['projects']?.digest).not.toBe(first.lock.sources['projects']?.digest);
