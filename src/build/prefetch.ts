@@ -1,7 +1,8 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { canonicalize, createJsonLoader, JsonError } from '../core/index.js';
+import { canonicalize } from '../core/canonical.js';
 import { normalizeSourceMap } from '../core/config.js';
+import { createJsonLoader, JsonError } from '../core/index.js';
 import type { Digest, JsonFailure, JsonLock, JsonPorts, SourceEntry, SourceId, SourceMap } from '../core/index.js';
 
 export interface PrefetchOutput {
