@@ -1030,14 +1030,12 @@ timestamp, which is J8.2's assertion failing, by design, so it is caught rather 
 
 ## Open register
 
-| | Item | Gated on |
-|---|---|---|
-| **O26** | **Should a bare YAML timestamp stay a string?** D41 kept `js-yaml`'s `DEFAULT_SCHEMA`, so `lastModified: 2025-08-24 00:00:00+00:00` publishes as `"2025-08-24T00:00:00.000Z"` — a coercion neither converter chose, retained because J8.2 requires byte-identity. `CORE_SCHEMA` would leave it as written. Changing it rewrites every artifact carrying a timestamp, so it is a content decision for `Docs-Template` and `Data`, not a parser one | A deliberate pass over those two repositories, after J8 lands |
-| **O27** | **Both converters swallow a per-file parse failure** — log to console, skip the file, continue, and report a count that silently excludes it. For `Data` that means a published artifact quietly disappearing on malformed YAML. Observed at `Docs-Template/scripts/pre-build.ts:630` and `Data/build.ts:66`; J2.3 reproduces it because reproducing the behaviour is the criterion | Whether `convertYamlToJson` should report failures rather than count around them — a contract question, since §9 returns only a `number` |
+Empty. Every item is tracked as a GitHub issue.
 
-All earlier items (O1, O3, O4, O5, O15, O16, O24, O25) were filed as GitHub issues
-by `/track` on 2026-08-07 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed
-from this table. Track them there. O24 is answered by D41 above.
+O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
+(`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this table. O26 and
+O27 were filed by the same command later the same day, as issues #29 and #30, and removed
+likewise. Track them all there. O24 is answered by D41 above.
 
 O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
 and the resolution it calls for is a `/contract` amendment, not a change to I13. That
