@@ -1,7 +1,8 @@
 import { canonicalize, digestOf } from './canonical.js';
 import { normalizeSource } from './config.js';
 import { sha256Hex, utf8ByteLength } from './sha256.js';
-import type { CacheManager } from './cache-manager.js';
+import type { CacheManager, CacheToken } from './cache-manager.js';
+import type { InFlightManager } from './in-flight.js';
 import type { NormalizedEntry } from './config.js';
 import type {
   CacheEntry,
@@ -210,31 +211,46 @@ async function checkFileCache(
   return { hit: false, stamp };
 }
 
-async function resolveFileFresh<T>(
-  request: JsonRequest<T>,
-  id: SourceId,
-  path: string,
-  location: string,
-  unwrap: Unwrap,
-  maxBytes: number | undefined,
-  ports: JsonPorts,
-  cacheEligible: boolean,
-  cachePolicyKind: CachePolicy['kind'] | null,
-  stampForWrite: { readonly mtimeMs: number; readonly size: number } | null,
-  cache: CacheManager,
-): Promise<JsonResult<T>> {
+/** The shared, per-request-independent half of a file load: fetch, parse, unwrap, domain-check,
+ * freeze. This is exactly what a joined caller shares (I17) — digest, validate, and fallback
+ * are per-request and run afterward, in `finalizeCore` (§1.4, I15). */
+interface CoreSuccess {
+  readonly ok: true;
+  readonly value: unknown;
+  readonly canonical: string;
+  readonly bytes: number;
+  readonly attempts: number;
+}
+interface CoreFailure {
+  readonly ok: false;
+  readonly reason: Exclude<ReasonCode, 'json.ok'>;
+  readonly message: string;
+  readonly bytes: number;
+  readonly attempts: number;
+}
+export type CoreFetch = CoreSuccess | CoreFailure;
+
+/** What a leader stores in the in-flight map (I17) and a joiner reads back: the shared outcome
+ * plus the cache token the leader captured before starting, so a joiner's own digest
+ * memoization (below) can tell whether that token is still current. */
+export interface CoreJoin {
+  readonly fetch: CoreFetch;
+  readonly token: CacheToken;
+}
+
+async function fetchFileCore(path: string, unwrap: Unwrap, maxBytes: number | undefined, ports: JsonPorts): Promise<CoreFetch> {
   let text: string;
   try {
     text = await ports.fs!.read(path);
   } catch (e) {
     const err = e as { code?: string; message?: string };
     const reason: Exclude<ReasonCode, 'json.ok'> = err?.code === 'ENOENT' ? 'json.notFound' : 'json.transport';
-    return fail(request, id, reason, err?.message ?? String(e), fileMeta(id, location, 0, 1));
+    return { ok: false, reason, message: err?.message ?? String(e), bytes: 0, attempts: 1 };
   }
 
   const bytes = utf8ByteLength(text);
   if (maxBytes !== undefined && bytes > maxBytes) {
-    return fail(request, id, 'json.tooLarge', `file '${path}' is ${bytes} bytes, exceeds maxBytes ${maxBytes}`, fileMeta(id, location, bytes, 1));
+    return { ok: false, reason: 'json.tooLarge', message: `file '${path}' is ${bytes} bytes, exceeds maxBytes ${maxBytes}`, bytes, attempts: 1 };
   }
 
   let parsed: unknown;
@@ -242,7 +258,7 @@ async function resolveFileFresh<T>(
     parsed = JSON.parse(text);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return fail(request, id, 'json.parse', message, fileMeta(id, location, bytes, 1));
+    return { ok: false, reason: 'json.parse', message, bytes, attempts: 1 };
   }
 
   let value: unknown;
@@ -250,34 +266,59 @@ async function resolveFileFresh<T>(
     value = applyUnwrap(parsed, unwrap);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return fail(request, id, 'json.schema', message, fileMeta(id, location, bytes, 1));
+    return { ok: false, reason: 'json.schema', message, bytes, attempts: 1 };
   }
 
-  const digested = digestAndFreeze(
-    request,
-    id,
-    value,
-    (b, a, digest) => fileMeta(id, location, b, a, digest),
-    bytes,
-    1,
-  );
-  if (!digested.ok) return digested.result;
-
-  if (cacheEligible) {
-    const entry: CacheEntry = {
-      data: digested.frozen,
-      source: { kind: 'file', path },
-      location,
-      bytes,
-      digest: digested.digest,
-      storedAt: ports.clock ? ports.clock() : null,
-      stamp: cachePolicyKind === 'mtime' ? stampForWrite : null,
-    };
-    cache.write(id, entry);
+  let canonical: string;
+  try {
+    canonical = canonicalize(value);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: 'json.schema', message, bytes, attempts: 1 };
   }
 
-  const baseMeta: JsonMeta = { id, provider: 'file', location, bytes, digest: digested.digest, cached: false, attempts: 1, validated: false };
-  return assembleValidated(request, id, digested.frozen, baseMeta);
+  return { ok: true, value: deepFreeze(value), canonical, bytes, attempts: 1 };
+}
+
+/**
+ * Per-caller finalization of a `CoreFetch` (I15, §1.4): digest, validate, fallback. `token`
+ * non-null means this caller may memoize a digest into the cache entry — but only by a guarded
+ * `commit`, so a generation that moved on since (invalidate, or a watch, J11.3/J11.4) is not
+ * clobbered with a digest computed from stale data (I17).
+ */
+function finalizeCore<T>(
+  request: JsonRequest<T>,
+  id: SourceId,
+  core: CoreFetch,
+  location: string,
+  cache: CacheManager | null,
+  token: CacheToken | null,
+): JsonResult<T> {
+  if (!core.ok) {
+    return fail(request, id, core.reason, core.message, fileMeta(id, location, core.bytes, core.attempts));
+  }
+
+  let digest: Digest | null = null;
+  if (request.digest) {
+    if (cache && token) {
+      const entry = cache.lookup(id);
+      if (entry) {
+        if (entry.digest === null) {
+          const computed = `sha256-${sha256Hex(core.canonical)}` as Digest;
+          // Guarded: a no-op, not a clobber, if the generation moved on since `token`.
+          if (cache.commit(id, { ...entry, digest: computed }, token)) entry.digest = computed;
+        }
+        digest = entry.digest ?? (`sha256-${sha256Hex(core.canonical)}` as Digest);
+      } else {
+        digest = `sha256-${sha256Hex(core.canonical)}` as Digest;
+      }
+    } else {
+      digest = `sha256-${sha256Hex(core.canonical)}` as Digest;
+    }
+  }
+
+  const baseMeta: JsonMeta = { id, provider: 'file', location, bytes: core.bytes, digest, cached: false, attempts: core.attempts, validated: false };
+  return assembleValidated(request, id, core.value, baseMeta);
 }
 
 /** A cache hit: validate per call against the shared, already-frozen value (I12, I15). */
@@ -303,15 +344,16 @@ function finishFromCache<T>(request: JsonRequest<T>, id: SourceId, entry: CacheE
 }
 
 /**
- * The 10-design.md §3.1 pipeline. Handles `inline` and `file` entries with the cache (J10);
- * `http` (J12) is deliberately left unresolved rather than stubbed, per 30-slices.md J10's
- * out-of-scope note.
+ * The 10-design.md §3.1 pipeline. Handles `inline` and `file` entries with the cache (J10) and
+ * single-flight coalescing with a generation guard (J11); `http` (J12) is deliberately left
+ * unresolved rather than stubbed, per 30-slices.md's out-of-scope notes.
  */
 export async function runPipeline<T>(
   request: JsonRequest<T>,
   declared: NormalizedEntry | undefined,
   ports: JsonPorts,
   cache: CacheManager,
+  inFlight: InFlightManager<CoreJoin>,
 ): Promise<JsonResult<T>> {
   const id = request.id;
 
@@ -329,7 +371,7 @@ export async function runPipeline<T>(
   }
 
   if (source.kind === 'http') {
-    // Out of scope for J10 (30-slices.md): http transport belongs to J12.
+    // Out of scope for J10/J11 (30-slices.md): http transport belongs to J12.
     return fail(
       request,
       id,
@@ -341,21 +383,53 @@ export async function runPipeline<T>(
 
   // file
   if (isAdHoc) {
-    // I16: an ad-hoc request.source is neither read from, written to, nor joined against the cache.
-    return resolveFileFresh(request, id, source.path, location, unwrap, undefined, ports, false, null, null, cache);
+    // I16/J11.5: an ad-hoc request.source is neither read from, written to, cached against,
+    // nor joined to or against an in-flight load.
+    const core = await fetchFileCore(source.path, unwrap, undefined, ports);
+    return finalizeCore(request, id, core, location, null, null);
   }
   // declared is guaranteed defined here: !isAdHoc and source resolved means declared.source did.
 
   const cacheEligible = request.cache !== false;
-  if (cacheEligible) {
-    const check = await checkFileCache(id, source.path, location, declared!.cache, ports, cache);
-    if (check.hit) {
-      cache.recordHit();
-      return finishFromCache(request, id, check.entry, cache);
-    }
-    cache.recordMiss();
-    return resolveFileFresh(request, id, source.path, location, unwrap, declared!.maxBytes, ports, true, declared!.cache.kind, check.stamp, cache);
+  if (!cacheEligible) {
+    // A per-call cache opt-out sits outside the cache-key mechanism entirely, so it neither
+    // reads a cached entry nor joins an in-flight load keyed on one (mirrors I16 for the same
+    // reason: no cache key, nothing to join through).
+    const core = await fetchFileCore(source.path, unwrap, declared!.maxBytes, ports);
+    return finalizeCore(request, id, core, location, null, null);
   }
 
-  return resolveFileFresh(request, id, source.path, location, unwrap, declared!.maxBytes, ports, false, null, null, cache);
+  const check = await checkFileCache(id, source.path, location, declared!.cache, ports, cache);
+  if (check.hit) {
+    cache.recordHit();
+    return finishFromCache(request, id, check.entry, cache);
+  }
+  cache.recordMiss();
+
+  const joined = inFlight.get(id);
+  if (joined) {
+    const { fetch, token } = await joined;
+    return finalizeCore(request, id, fetch, location, cache, token);
+  }
+
+  const token = cache.currentToken(id);
+  const { fetch, token: settledToken } = await inFlight.run(id, async (): Promise<CoreJoin> => {
+    const result = await fetchFileCore(source.path, unwrap, declared!.maxBytes, ports);
+    if (result.ok) {
+      const entry: CacheEntry = {
+        data: result.value,
+        source: { kind: 'file', path: source.path },
+        location,
+        bytes: result.bytes,
+        digest: null,
+        storedAt: ports.clock ? ports.clock() : null,
+        stamp: declared!.cache.kind === 'mtime' ? check.stamp : null,
+      };
+      // J11.3/I17: on a generation mismatch this is a no-op — the result still reaches every
+      // caller below, but nothing is written.
+      cache.commit(id, entry, token);
+    }
+    return { fetch: result, token };
+  });
+  return finalizeCore(request, id, fetch, location, cache, settledToken);
 }

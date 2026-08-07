@@ -1,7 +1,9 @@
 import { createCacheManager } from './cache-manager.js';
 import { checkRequiredPorts, normalizeSourceMap } from './config.js';
 import { JsonError } from './errors.js';
+import { createInFlightManager } from './in-flight.js';
 import { runPipeline } from './pipeline.js';
+import type { CoreJoin } from './pipeline.js';
 import type { JsonFailure, JsonLoader, JsonPorts, JsonRequest, JsonResult, SourceId, SourceMap } from './types.js';
 
 function synthesizeRequest<T>(id: SourceId): JsonRequest<T> {
@@ -9,15 +11,16 @@ function synthesizeRequest<T>(id: SourceId): JsonRequest<T> {
 }
 
 /**
- * J1 scope was the inline pipeline only. J10 adds the cache and file sources through
- * `ports.fs` (30-slices.md). http transport (J12) and single-flight coalescing (J11) remain
- * out of scope here.
+ * J1 scope was the inline pipeline only. J10 added the cache and file sources through
+ * `ports.fs`, and J11 adds single-flight coalescing with a generation guard (30-slices.md).
+ * http transport (J12) remains out of scope here.
  */
 export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): JsonLoader {
   const normalized = normalizeSourceMap(sources);
   checkRequiredPorts(normalized, ports);
 
   const cache = createCacheManager(ports);
+  const inFlight = createInFlightManager<CoreJoin>();
 
   // I26/D31: a watch is registered lazily, on the first successful read of a file entry
   // declaring an `mtime` policy, never at construction.
@@ -39,7 +42,7 @@ export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): Jso
 
   async function load<T>(request: JsonRequest<T>): Promise<JsonResult<T>> {
     const declared = normalized.get(request.id);
-    const result = await runPipeline(request, declared, ports, cache);
+    const result = await runPipeline(request, declared, ports, cache, inFlight);
     maybeRegisterWatch(request.id, request, result);
     return result;
   }
