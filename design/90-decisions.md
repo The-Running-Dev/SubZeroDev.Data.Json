@@ -1176,19 +1176,12 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **The public/server gate should scan public output content, not only filenames.**
-  `assertNoServerSourcesInBundle` matches a file whose basename equals a server source id, so it
-  catches a stray prefetched artifact and nothing else. A server entry's URL or a declared
-  header name inlined into a JS chunk reaches a browser with the gate passing. I7 claims more
-  than that, and D6 rests part of the two-file split on the leak being greppable in CI. D46
-  records why the widening was not done inline. Needs a decision on what counts as a match after
-  minification, escaping, or chunk-splitting, and on what a false positive does to a build.
-
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this section. O26 and
 O27 were filed by the same command later the same day, as `The-Running-Dev/SubZeroDev.Data.Json`
 issues #29 and #30, and removed likewise. O28 was filed the same day, as issue #34, and removed
-likewise. Track them all there. O24 is answered by D41 above.
+likewise. The public/server gate content-scan item (D46) was filed on 2026-08-08 as issue #37
+and removed likewise. Track them all there. O24 is answered by D41 above.
 
 O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
 and the resolution it calls for is a `/contract` amendment, not a change to I13. That
