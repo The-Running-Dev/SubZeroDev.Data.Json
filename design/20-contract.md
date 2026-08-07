@@ -8,7 +8,9 @@ All types are exported from the core (`@subzerodev/data-json`) unless a subpath 
 Sections §1–§9 keep their numbering and invariant ids from the 2026-08-06 draft.
 §10–§12 are appended. Amendments made in the 2026-08-07 pass are logged as
 `90-decisions.md` D22–D33; the canonical value domain appended later the same day is D40,
-which discharges D39's deferral.
+which discharges D39's deferral. The 2026-08-08 pass lands the four amendments D42, D43,
+D45, and D46 each named as belonging here, and opens U7 and U8 for the two gaps
+`30-slices.md` surfaced that no design document determines.
 
 ## 1. Result
 
@@ -158,8 +160,8 @@ export interface ScheduledWait {
 
 export interface CacheEntry {
   readonly data: unknown;      // frozen; post-unwrap, pre-validation (I15)
-  readonly source: JsonSource; // what it resolved from
-  readonly location: string;   // the location the bytes came from
+  readonly source: JsonSource; // the declared source; compared on every lookup (I16)
+  readonly location: string;   // the location the bytes came from (I30)
   readonly bytes: number;
   digest: Digest | null;       // memoized on first request against this entry (I32)
   readonly storedAt: number | null;   // null when no clock port was supplied
@@ -338,8 +340,8 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I4** | `unwrap` is never inferred from payload shape. Absent means `'none'`, and `'none'` means the parsed body is returned exactly as parsed. | core |
 | **I5** | Two payloads that are equal as JSON values produce the same `digest`, regardless of key order or whitespace. Two that differ produce different digests. | core |
 | **I6** | Every port a supplied entry needs is present at construction, or `createJsonLoader` throws `JsonError('config.missingPort')` naming the entry and the port: `fetch` for an http entry, `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for a timeout or a non-zero delay. The check covers exactly the entries in the map supplied, never a wider set. Never a silent downgrade. | core |
-| **I7** | No entry originating in `sources.server.yml` appears in any artifact reachable by a browser bundle. Asserted in CI. | build |
-| **I8** | An `at: build` source is never fetched at runtime; an `at: runtime` source is never resolved at build. | build |
+| **I7** | `headers` may be declared only in `sources.server.yml`; declaring them in the public map is `config.invalidEntry`. The build gate's guarantee is **filename-scoped**: no file whose basename is a server-map source id appears in the public output directory. That catches a prefetched artifact written where a browser can read it, and nothing else — a server URL or a declared header name inlined into a JS chunk passes it (D46). Asserted in CI. Widening the gate to a content scan is issue #37 and is not contracted here. | build |
+| **I8** | An `at: build` source is never fetched at runtime; an `at: runtime` source is never resolved at build. `prefetch` constructs its loader over the map filtered to its `at: build` entries, so a build demands under I6 exactly the ports the entries it resolves need, and never a port for an `at: runtime` entry it is guaranteed not to touch. | build |
 | **I9** | A source's `at` value may change without any call site changing. | core, build |
 | **I10** | `meta.validated` is `true` only when a validator ran in this call and returned `ok`. Absent validator means `false`, never `true`. | core |
 | **I11** | `meta.attempts` equals the number of transport attempts, `1` on a first-try success, and `0` for `inline` and for a cache hit. A joined caller reports the attempts made by the load it joined, with `cached: false`. | core |
@@ -347,7 +349,7 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I13** | The core's canonical serializer is byte-identical to `src/engine/src/core/persistence/canonical.ts` on that module's test vectors, and rejects exactly the values that module rejects. Message text is not compared — a rejection is compared as a rejection. Cross-checked until J9, when the engine's copy is deleted. | core |
 | **I14** | Every value `load` returns is deeply frozen — on a miss, with caching off, after a validator transform, and on a fallback. Mutability never depends on a cache policy the call site cannot see. | core |
 | **I15** | The cache line holds the post-unwrap, pre-validation value. Validation runs per call against it, so `validated` is a property of the call and never of the entry. | core |
-| **I16** | The cache key is the source id, scoped to the loader instance. An entry records the source it resolved from, and a lookup whose entry resolves elsewhere is a miss. A request supplying its own `source` is neither read from, written to, nor joined against the cache. | core |
+| **I16** | The cache key is the source id, scoped to the loader instance. An entry records the `JsonSource` it was declared as, and a lookup is a hit only where that source equals the one the request resolves to — for an http source, url and headers both. *Elsewhere* means a **different declared source, never a different final URL**: a source that redirects caches under the id it was declared as, and `location` keeps its I30 meaning untouched. A request supplying its own `source` is neither read from, written to, nor joined against the cache. | core |
 | **I17** | Concurrent misses for one key issue one transport. The rest join it and receive the same frozen value. A load compares the generation it started under before storing; on a mismatch it returns its result and writes nothing. | core |
 | **I18** | Retry applies only to `json.transport`, `json.timeout`, and statuses 408, 429, and 5xx. Never to other 4xx, `json.parse`, `json.schema`, `json.notFound`, or `json.tooLarge`. `timeoutMs` bounds each attempt, never the call. | core |
 | **I19** | A failed load neither populates nor evicts the cache. A stale entry is not a hit and is not deleted. A declared `fallback` is the only path by which a caller receives data it did not just read. | core |
@@ -359,7 +361,7 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I25** | An `mtime` stamp is captured before the read, never after. A null stamp is never a hit. An `mtime` policy on a non-file entry is `config.invalidEntry`. | core, node |
 | **I26** | Every watcher a loader registered is unsubscribed by `dispose()`. A watch is registered lazily on first successful read, never at construction. After `dispose`, the process is not held open by this loader. | core, node |
 | **I27** | A body exceeding a declared `maxBytes` — measured against `Content-Length` where present, and against the decoded length always — yields `json.tooLarge`, is not retried, and writes nothing to the cache. Where a declared `Content-Length` is what refused it, `meta.bytes` carries that declared length: no body was received to measure, and the declared length is the number the refusal was made on. | core |
-| **I28** | The router maps reason to status and never forwards the upstream status: `json.unresolved` and `json.notFound` to 404; `json.timeout` and `json.transport` to 504; `json.status`, `json.parse`, `json.schema`, and `json.tooLarge` to 502. | node |
+| **I28** | The router maps reason to status and never forwards the upstream status: `json.unresolved` and `json.notFound` to 404; `json.timeout` and `json.transport` to 504; `json.status`, `json.parse`, `json.schema`, and `json.tooLarge` to 502. Its failure body is `{ success: false, message }` carrying the result's own `message` — the field the core's `'subzerodev'` unwrap reads (I34), so a data-json client of a data-json server receives the real text rather than generic fallback prose (D45). | node |
 | **I29** | One `CacheStore` handed to two loaders serves neither loader the other's entries, and `invalidate` on either leaves the other's entries intact. | core |
 | **I30** | `meta.location` and `JsonLock.sources[].location` record the location the bytes came from, not the location that was requested. | core, build |
 | **I31** | `cache` is required on every http and file entry and forbidden on an inline entry. There is no default cache policy. Omitting it is `config.invalidEntry` naming the id. | core |
@@ -406,8 +408,10 @@ export function assertNoDuplicateIds(publicMap: SourceMap, serverMap: SourceMap)
 port stays read-only (`90-decisions.md` D19).
 
 The `'subzerodev'` literal stays in the core because it is declared in configuration and
-the core reads configuration; `/node` owns the producer (`envelope`). J2.5's round-trip
-test is what keeps the two ends agreeing.
+the core reads configuration; `/node` owns the producer (`envelope`) for the success half
+and `jsonRouter` emits the failure half (I28). J2.5's round-trip test is what keeps the two
+ends agreeing, and it covers both halves — a test written to catch a shape divergence that
+exercises only the success side is how D45's divergence survived.
 
 `@subzerodev/data-json/react` is blocked — see §12 U1.
 
@@ -448,7 +452,7 @@ export class JsonError extends Error {
 | `config.duplicateId` | core; `/build` across the two maps | One id declared twice, or in both the public and the server map (I23) | No | Rename one. The message names the id and both files |
 | `preload.failed` | core, from `preload` | One or more ids failed to resolve (I20) | Per `failures[].reason` — see §10.2 | Refuse to boot, exit non-zero, and report every entry in `failures` |
 | `build.failed` | `/build`, from `prefetch` | One or more `at: build` sources failed (I20) | Per `failures[].reason` | Fail the build. Nothing was written; the previous output is untouched |
-| `build.serverSourceLeaked` | `/build`, from `assertNoServerSourcesInBundle` | A server-map entry reached the public output (I7, I22) | No | Fail the build and remove the leak. Output is present but rejected |
+| `build.serverSourceLeaked` | `/build`, from `assertNoServerSourcesInBundle` | A file named for a server-map source id is present in the public output — the filename-scoped half of I7, run after the last write (I22) | No | Fail the build and remove the leak. Output is present but rejected |
 
 ### 10.2 `ReasonCode`
 
@@ -483,7 +487,9 @@ than a protocol.
 
 ## 12. Unresolved
 
-Four items the design does not determine. Each blocks the work named; none is invented here.
+Six items the design does not determine. Each blocks the work named; none is invented here.
+U7 and U8 are `30-slices.md`'s "contract gaps this pass surfaced" 2 and 1, moved to the
+register that owns them — that section recorded them, this one is where they are answered.
 
 | | Item | Blocks |
 |---|---|---|
@@ -491,6 +497,13 @@ Four items the design does not determine. Each blocks the work named; none is in
 | **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
 | **U5** | **A concurrency bound for eager resolution** (`90-decisions.md` O5, O17). `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map as an assumption rather than a guarantee. `loadMany` takes a caller-sized array, which that assumption does not reach. No bound is specified, so none is contracted. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
+| **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive, removing one after publication is not, and 0.1.0 is unpublished. D44 routes the three the core index exports today to `/fix` for removal, precisely so this is decided against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
+| **U8** | **Nothing turns `sources.*.yml` into a `SourceMap`** (`30-slices.md` gap 1). §10.1 names `/node` as raising `config.invalidEntry` "when reading YAML", but §9 exports no reader — `convertYamlToJson(from, to)` converts files, not configuration, and `10-design.md` §2 gives `/node` only "the YAML→JSON conversion the CLI wraps". A reader's return type, its error surface, and whether it validates the parsed map against §6 before returning are all undetermined. J3.1 takes a `SourceMap` already in memory and J6.4 puts sources into YAML, so something has to bridge them; until that signature is designed, §10.1's `/node`-reading-YAML clause names a raiser that does not exist. | J6 |
+
+**U3 is resolved.** The parser is `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a `dependencies`
+entry resolved only by `/node`'s subpath (`90-decisions.md` D41, which names the alternatives
+rejected and why). `10-design.md` §7 Q3's recommended *shape* — a normal dependency of `/node`
+only, leaving the core at zero — is what shipped. The id is retired, not reused.
 
 **U3 is resolved.** The parser is `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a `dependencies`
 entry resolved only by `/node`'s subpath (`90-decisions.md` D41, which names the alternatives
