@@ -166,13 +166,10 @@ describe('J1.12 / I4: unwrap is never inferred from payload shape', () => {
   });
 });
 
-describe('I2, I24: a declared source kind J1 does not implement never throws or rejects', () => {
-  it('an http entry (fetch port supplied) returns json.unresolved rather than throwing', async () => {
-    const loader = createJsonLoader(
-      inlineMap({ a: { at: 'runtime', url: 'https://example.test/a.json', cache: 'manual' } as never }),
-      { fetch: (async () => new Response('{}')) as never, schedule: (() => 0) as never },
-    );
-    const result = await loader.loadById('a');
+describe('I2, I24: an unresolvable id never throws or rejects load()', () => {
+  it('an id absent from the map returns json.unresolved rather than throwing', async () => {
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: 1 } } as never }));
+    const result = await loader.loadById('missing');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('json.unresolved');
   });
