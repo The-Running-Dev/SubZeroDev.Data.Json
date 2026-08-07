@@ -54,6 +54,11 @@ export type JsonResult<T> =
 
 `message` is for humans and logs. Control flow branches on `reason`.
 
+`location` is `''` in two cases, not one: when nothing resolved, and for an `inline` source,
+which has no location to record. `provider` is what tells them apart — `'none'` against
+`'inline'` — so an exhaustive switch on `provider` never has to read `location` to know which
+it is holding.
+
 ## 2. Sources
 
 ```ts
@@ -353,13 +358,13 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I24** | Nothing in this package throws a bare `Error` or a string. Every throw and every rejection is a `JsonError` carrying an enumerated `code`. `load` still throws nothing at all (I2). | core, node, build |
 | **I25** | An `mtime` stamp is captured before the read, never after. A null stamp is never a hit. An `mtime` policy on a non-file entry is `config.invalidEntry`. | core, node |
 | **I26** | Every watcher a loader registered is unsubscribed by `dispose()`. A watch is registered lazily on first successful read, never at construction. After `dispose`, the process is not held open by this loader. | core, node |
-| **I27** | A body exceeding a declared `maxBytes` — measured against `Content-Length` where present, and against the decoded length always — yields `json.tooLarge`, is not retried, and writes nothing to the cache. | core |
+| **I27** | A body exceeding a declared `maxBytes` — measured against `Content-Length` where present, and against the decoded length always — yields `json.tooLarge`, is not retried, and writes nothing to the cache. Where a declared `Content-Length` is what refused it, `meta.bytes` carries that declared length: no body was received to measure, and the declared length is the number the refusal was made on. | core |
 | **I28** | The router maps reason to status and never forwards the upstream status: `json.unresolved` and `json.notFound` to 404; `json.timeout` and `json.transport` to 504; `json.status`, `json.parse`, `json.schema`, and `json.tooLarge` to 502. | node |
 | **I29** | One `CacheStore` handed to two loaders serves neither loader the other's entries, and `invalidate` on either leaves the other's entries intact. | core |
 | **I30** | `meta.location` and `JsonLock.sources[].location` record the location the bytes came from, not the location that was requested. | core, build |
 | **I31** | `cache` is required on every http and file entry and forbidden on an inline entry. There is no default cache policy. Omitting it is `config.invalidEntry` naming the id. | core |
 | **I32** | A `digest: true` request against an entry stored without one computes the digest from the cached value and memoizes it. It never re-transports, and never returns `digest: null` under `ok: true`. | core |
-| **I33** | `prefetch` emits a `SourceMap` in which every `at: build` entry has become an inline entry carrying the resolved data. A runtime loader constructed from it resolves those ids without any port, and `10-design.md` §3.1's pipeline never branches on `at`. | build |
+| **I33** | `prefetch` emits a `SourceMap` in which every `at: build` entry has become an inline entry carrying the resolved data. A runtime loader constructed from it resolves those ids without any port, and `10-design.md` §3.1's pipeline never branches on `at`. The rewritten entry keeps `at` and `schema` and carries none of `unwrap`, `cache`, `maxBytes`, `timeoutMs`, or `retry`: the data is already unwrapped, and an inline entry transports nothing for any of them to govern (I31 forbids `cache` there outright). | build |
 | **I34** | An `unwrap: 'subzerodev'` envelope whose `success` is `false` yields `json.schema`, with the envelope's own error text in `message`. `ok: true` with `data: undefined` is unreachable. | core |
 | **I35** | The canonical serializer accepts exactly `CanonicalValue` (§3). At any depth it filters `undefined`-valued object keys, and rejects a non-finite number, a bare `undefined`, a `bigint`, a symbol, and a function. Rejection is a throw. The serializer is pure: it reaches no port and no ambient global. | core |
 | **I36** | The post-unwrap value is checked against I35's domain on every load — before it is frozen, before it is cached, and independently of `digest`. A value outside the domain yields `json.schema` and writes nothing to the cache. No cache entry ever holds an out-of-domain value, so I32's memoized digest never throws, and `digest` never changes a result's `ok`. | core |
@@ -478,15 +483,19 @@ than a protocol.
 
 ## 12. Unresolved
 
-Five items the design does not determine. Each blocks the work named; none is invented here.
+Four items the design does not determine. Each blocks the work named; none is invented here.
 
 | | Item | Blocks |
 |---|---|---|
 | **U1** | **How `useJson(id)` reaches a `JsonLoader`.** `10-design.md` §2 gives `/react` only `useJson` and `JsonBoundary`. A context provider, or a loader parameter, is a new public interface, and the design names neither. The two signatures from the 2026-08-06 draft stand unchanged and are not implementable until this is decided. | J4 |
 | **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
-| **U3** | **Which YAML parser** (`10-design.md` §7 Q3). The design recommends a normal dependency of `/node` only, leaving the core at zero, but records no decision and names no parser. `90-decisions.md` requires an entry naming the alternatives rejected. | J2 |
 | **U5** | **A concurrency bound for eager resolution** (`90-decisions.md` O5, O17). `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map as an assumption rather than a guarantee. `loadMany` takes a caller-sized array, which that assumption does not reach. No bound is specified, so none is contracted. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
+
+**U3 is resolved.** The parser is `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a `dependencies`
+entry resolved only by `/node`'s subpath (`90-decisions.md` D41, which names the alternatives
+rejected and why). `10-design.md` §7 Q3's recommended *shape* — a normal dependency of `/node`
+only, leaving the core at zero — is what shipped. The id is retired, not reused.
 
 **U4 is resolved.** The engine's serializer has been read and cross-checked
 (`90-decisions.md` D39); its key ordering, escaping, and number formatting are verified

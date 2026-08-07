@@ -8,7 +8,8 @@ Keep it short — it loads into context, so length is a recurring cost. **Add a 
 when it would have changed a decision.** A lesson with no cost attached is a preference,
 and preferences belong in `AGENTS.md`.
 
-> **Everything below is inherited, not earned here.** It was harvested from ten existing
+> **The topical sections below are inherited, not earned here** — *Earned here* at the foot of
+> the file is the exception, and grows. The inherited set was harvested from ten existing
 > projects because these are the failures most likely to repeat, not because they have
 > already bitten in this repo. Delete any that turn out not to apply; add the ones that
 > actually cost something. A lesson kept past its usefulness is context you pay for on
@@ -117,3 +118,18 @@ and preferences belong in `AGENTS.md`.
   against the actual contract.
 - **A shortcut taken in the reference implementation gets copied.** The next author reads
   the working example before reading the contract.
+
+## Earned here
+
+- **A test fixture that exists to work around an invariant is drift, not a fixture.** J3's
+  `unusedHttpPorts()` supplies throwing `fetch` and `schedule` ports so `prefetch` can satisfy
+  I6 for `at: runtime` entries it never resolves, and its comment explains exactly that — a
+  correct description of D30 being unimplemented, written in the register of a setup detail.
+  **Cost: D30 stopped binding at J3 and nothing said so until `/reconcile` a slice later**
+  (D43). When a fixture has to be explained, the explanation is the finding.
+- **When a decision redefines a field, re-read every comparison written on it.** D37 changed
+  `location` from the requested URL to the resolved one; the cache lookup written against the
+  old meaning was never revisited, so a redirected source misses forever. **Cost: a live cache
+  defect, plus redirect tests that pass while proving the wrong half** — they assert
+  `meta.location` once and never read twice (D42). A redefinition is a grep for every *reader*
+  of the field, not only every writer.
