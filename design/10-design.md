@@ -54,7 +54,7 @@ them are the design decisions most expensive to change later.
 | Field | Derived from |
 |---|---|
 | `id` | The request |
-| `provider`, `location` | The normalized source. `location` is empty when nothing resolved |
+| `provider`, `location` | The normalized source. `location` is `''` when nothing resolved and for an `inline` source; `20-contract.md` §1 owns which is which |
 | `bytes` | UTF-8 byte length of the body as received. `0` for `inline`. On a cache hit, the stored value — the payload was that size when it was read |
 | `digest` | SHA-256 over the canonical serialization of the **post-unwrap, pre-validation** value. `null` unless requested |
 | `cached` | Whether the value came from the cache line |

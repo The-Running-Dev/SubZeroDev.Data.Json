@@ -1018,6 +1018,147 @@ timestamp, which is J8.2's assertion failing, by design, so it is caught rather 
 
 ---
 
+Settled 2026-08-07, in the `/reconcile` pass that compared the working tree against
+`10-design.md` and `20-contract.md` after J1, J10–J12, J2, J3, and J5. D42–D46 are the five
+divergences that needed a decision rather than a correction; the rest of that pass was
+documentation catching up to code and carries no entry.
+
+---
+
+## D42 — The cache lookup compares source identity, not resolved location (2026-08-07)
+
+**Context.** `10-design.md` §1.1 says a cache entry records the location it resolved from and
+that a lookup resolving elsewhere is a miss — written to stop a request carrying its own
+`source` from being served an id's cached bytes. D37 then redefined `location` to mean the
+**final** location the bytes came from. The implementation compares the stored entry's
+`location` against the *declared* URL, so after any redirect the two never match: a redirected
+http source misses on every read, re-transports, and rewrites the entry it just wrote. Both
+decisions are individually right and jointly broken. Neither the redirect tests
+(`src/core/http.test.ts`, I30) nor anything else reads twice, so nothing caught it.
+
+**Chosen.** The lookup compares **source identity** — the entry's recorded `JsonSource` against
+the source the request resolves to — not `location`. `meta.location` and
+`JsonLock.sources[].location` keep D37's meaning untouched, and a redirected source caches
+normally under the id it was declared as. `20-contract.md` I16's "a lookup whose entry resolves
+elsewhere is a miss" gains one clarifying clause in the next `/contract` pass: *elsewhere* means
+a different declared source, never a different final URL.
+
+**Rejected.** Recording the divergence as known-and-retained and deferring to §12 U2's redirect
+policy — cheapest today, but U2 has no owner and no schedule, and until it lands every read of
+every redirected source pays a full transport while `stats()` reports honest-looking misses.
+Also rejected: storing both the requested and the resolved location on the entry and comparing
+the requested one, which works but keeps two location fields where the entry already carries
+the source that answers the question.
+
+**Not done here.** No code changed. This is a live defect with an observable behaviour change,
+so it goes to `/fix` on a branch with a regression test that fails when the comparison is put
+back — `/reconcile` decides which side is correct, it does not land the fix.
+
+**Reversibility:** cheap. Internal to the loader; no persisted format and no public signature
+changes.
+
+---
+
+## D43 — `prefetch` constructs its loader over the `at: build` half of the map (2026-08-07)
+
+**Context.** D30 states that because D24 has `/build` rewrite `at: build` entries to inline,
+"`prefetch` checks only `at: build` entries", and that the I6 scoping falls out of D24 rather
+than needing a mechanism. It does not: `src/build/prefetch.ts` hands the **whole** map to
+`createJsonLoader`, and I6 checks exactly what it is given. A build over a map holding an
+`at: runtime` http entry therefore demands `fetch` and `schedule` ports for a source I8
+guarantees it will never touch. `src/build/prefetch.test.ts` supplies throwing dummy ports to
+get past it, with a comment explaining the workaround — which is drift documented as a fixture.
+
+**Chosen.** `prefetch` builds its loader over a map filtered to `at: build` entries. That is
+what D30 describes, and it makes I6's "exactly the entries in the map supplied" literally
+correct at the build boundary instead of approximately correct. The dummy ports go with it.
+
+**Rejected.** Amending D30 to say `prefetch` checks the full map and that a consumer must
+supply every port any entry declares — honest and zero-risk, but it reinstates precisely the
+case D30 exists to close, and taxes every consumer's build with ports for sources it never
+resolves. Also rejected: relaxing I6 to skip `at: runtime` entries inside `createJsonLoader`,
+which pushes an `at`-shaped branch into the core that D24 was designed to keep out.
+
+**Not done here.** `/fix`'s, with a test that fails when the filter is removed.
+
+**Reversibility:** cheap. One function, no public surface.
+
+---
+
+## D44 — The canonical serializer stays unexported until §9 declares it (2026-08-07)
+
+**Context.** `src/core/index.ts` exports `canonicalize`, `digestOf`, and `sha256Hex` from the
+`.` entry point. `20-contract.md` §9 declares none of them, and `30-slices.md` J1's out-of-scope
+line says in as many words not to invent that export to satisfy J9.1 — the gap is recorded as
+contract gap 2. Only `canonicalize` has a caller outside `src/core/` (`src/build/prefetch.ts`),
+and that caller is inside this package.
+
+**Chosen.** Remove all three from the core index; `/build` imports `../core/canonical.js`
+directly. Contract gap 2 stays open, for `/contract` to answer with J9.1's actual requirement in
+view rather than by ratifying whatever a slice happened to export.
+
+**Rejected.** Amending §9 to declare the three now, which closes gap 2 early and hands J9.1 its
+import — but it sets a public compatibility promise on `sha256Hex` and `digestOf` that nobody
+has asked for, decided in a reconcile rather than in `/contract`, which `AGENTS.md` routes
+public-interface decisions to. The asymmetry is the argument: adding an export later is
+additive, removing one after publication is not, and 0.1.0 is unpublished.
+
+**Not done here.** `/fix`'s, alongside D42 and D43.
+
+**Reversibility:** cheap in the additive direction, expensive in the other — which is why the
+narrow side is the default.
+
+---
+
+## D45 — The failure envelope carries `message`, matching what the core reads (2026-08-07)
+
+**Context.** D28 settled that the `'subzerodev'` literal stays in the core and `/node` owns the
+producer, with J2.5's round-trip test keeping the two ends agreeing. The core's unwrap reads
+`envelope.message`; `jsonRouter` emits `{ success: false, error }`. So a data-json client
+reading a data-json server's failure gets the generic fallback text instead of the real one,
+which is exactly what I34 says must not happen. J2.5 covers only the success half, which is how
+"owning both ends" missed it.
+
+**Chosen.** The router emits `{ success: false, message }`, matching what the core already
+reads and what I34 already says. J2.5's round trip grows to cover the failure half — the gap
+that let a shape divergence through a test written to prevent one.
+
+**Rejected.** Making `applyUnwrap` read `message ?? error`, which changes nothing on the wire
+and is more forgiving of third-party envelopes — but it puts a compatibility shim in the core
+for its own sibling module and leaves two field names for one thing, which is what single
+ownership exists to prevent. Also rejected: specifying `{ success: false, error }` in §9 as-is
+and accepting the lost text, which is cheapest and is the warn-then-degrade shape D8 retires.
+
+**Not done here.** `/fix`'s. The response body is observable, so this is free only while no
+consumer exists — which is now.
+
+**Reversibility:** cheap today, moderate after J6+J7 migrate a consumer onto the mount.
+
+---
+
+## D46 — The public/server gate's guarantee is filename-scoped, and that is stated (2026-08-07)
+
+**Context.** I7 claims no server-map entry appears in **any** artifact reachable by a browser
+bundle, and D6 rests part of the two-file split on the leak being greppable in CI.
+`assertNoServerSourcesInBundle` matches files whose basename equals a server source id. That
+catches a prefetched artifact written into the public output and nothing else: a server URL, or
+a declared `Authorization` header, inlined into a JS chunk passes the gate clean.
+
+**Chosen.** State what the gate proves rather than what I7 claims, and file the widening — a
+content scan of the public output for each server entry's URL and header names — as its own
+work. The narrow gate is not removed; it is the cheap half, and it stays.
+
+**Rejected.** Widening the scan inside this reconcile. The widening needs a policy answer this
+command has no business setting: what counts as a match once a bundler has minified, escaped,
+or split the string, and what a false positive does to a build. That is a slice, not an edit.
+Also rejected: narrowing I7 to match the implementation, which makes the invariant true by
+construction and needs no follow-up — but it gives up the greppable-in-CI argument that is a
+large part of why D6 chose two files over one.
+
+**Reversibility:** cheap. The statement is documentation; the widening is additive.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -1030,16 +1171,24 @@ timestamp, which is J8.2's assertion failing, by design, so it is caught rather 
 
 ## Open
 
-Empty. Every item is tracked as a GitHub issue. New items go here as bullets, each starting
-with a **bolded lead sentence** — that sentence becomes the issue title when `/track` files it
-(see `.claude/commands/track.md`, "Open items → issues").
+A staging area, not a home: an item stays here only until `/track` files it as a GitHub issue,
+then it is removed. New items go here as bullets, each starting with a **bolded lead sentence**
+— that sentence becomes the issue title when `/track` files it (see
+`.claude/commands/track.md`, "Open items → issues").
 
-- _(none currently open)_
+- **The public/server gate should scan public output content, not only filenames.**
+  `assertNoServerSourcesInBundle` matches a file whose basename equals a server source id, so it
+  catches a stray prefetched artifact and nothing else. A server entry's URL or a declared
+  header name inlined into a JS chunk reaches a browser with the gate passing. I7 claims more
+  than that, and D6 rests part of the two-file split on the leak being greppable in CI. D46
+  records why the widening was not done inline. Needs a decision on what counts as a match after
+  minification, escaping, or chunk-splitting, and on what a false positive does to a build.
 
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this section. O26 and
 O27 were filed by the same command later the same day, as `The-Running-Dev/SubZeroDev.Data.Json`
-issues #29 and #30, and removed likewise. Track them all there. O24 is answered by D41 above.
+issues #29 and #30, and removed likewise. O28 was filed the same day, as issue #34, and removed
+likewise. Track them all there. O24 is answered by D41 above.
 
 O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
 and the resolution it calls for is a `/contract` amendment, not a change to I13. That

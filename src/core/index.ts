@@ -7,6 +7,7 @@ export type {
   CacheEntry,
   CachePolicy,
   CacheStore,
+  CanonicalValue,
   Digest,
   FileSystemPort,
   HttpCacheSpec,

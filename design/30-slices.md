@@ -265,7 +265,7 @@ to retire.
 **Touches:** `src/node/`
 **Depends on:** J10 (for the `mtime` policy the port serves), J12 (for the router's failure
 mapping)
-**Blocked in part by:** §12 U3 (J2.3 only — no YAML parser has been chosen)
+**Blocked by:** nothing. J2.3's blocker was §12 U3, resolved by `90-decisions.md` D41
 
 ### Done when
 
@@ -277,9 +277,9 @@ mapping)
       filesystem's mtime resolution — is written into the test as a documented gap, not left
       to be rediscovered as a bug.
 - [ ] **J2.3** `convertYamlToJson(from, to)` reproduces the behaviour of both existing
-      converters, recursive directories included, and is exposed as a CLI.
-      **Blocked by §12 U3** — the parser is an undeclared dependency and `90-decisions.md`
-      requires an entry naming the alternatives rejected before one is added.
+      converters, recursive directories included, and is exposed as a CLI. The parser is
+      `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA` (`90-decisions.md` D41, which discharges
+      §12 U3 and names the alternatives rejected).
 - [ ] **J2.4** `jsonRouter` mounts GET routes only. No write verb is reachable through it, and
       the package writes nothing at runtime (`00-brief.md` §5.1).
 - [ ] **J2.5** `envelope()` produces the shape `unwrap: 'subzerodev'` consumes, verified by a
@@ -536,9 +536,10 @@ one (`AGENTS.md`, *Hard rules*).
 2. **J9.1 requires an export §9 does not declare.** "The engine imports the package's
    canonical serializer" needs a public canonical-serialization function; §9 lists none, and
    I13 describes the serializer only as an internal property. Affects J1.5, J9.1.
-3. **`meta.location` for an `inline` source is unspecified.** §1.3 gives `location` an empty
-   string only when nothing resolved, and `bytes` is explicitly `0` for inline, but nothing
-   says what an inline source's location is. Affects J1.14.
+3. ~~**`meta.location` for an `inline` source is unspecified.**~~ **Closed.** `20-contract.md`
+   §1 now states that `location` is `''` both when nothing resolved and for an `inline`
+   source, and that `provider` is what distinguishes them. That is what the implementation
+   does; the reconcile of 2026-08-07 wrote it down rather than leaving it to be rediscovered.
 
 Two routing notes, for the same reason:
 

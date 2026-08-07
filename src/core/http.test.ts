@@ -489,4 +489,25 @@ describe('J12.8: invariant-removal coverage', () => {
     const r = await p;
     expect(r.ok && r.meta.location).toBe('https://other.example.test/a.json');
   });
+
+  // D42 — a redirected source's cache lookup compares source identity, not the resolved
+  // location I30 records: a second read of the same declared source hits the cache instead of
+  // re-transporting and rewriting the entry it just wrote.
+  it('D42', async () => {
+    const f = controllableFetch();
+    const loader = createJsonLoader(httpMap('https://example.test/a.json'), { fetch: f.fetch, schedule: fakeSchedule().schedule });
+    const p1 = loader.loadById('a');
+    await flush();
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://other.example.test/a.json' }));
+    const r1 = await p1;
+    expect(r1.ok && r1.meta.location).toBe('https://other.example.test/a.json');
+    expect(f.calls).toBe(1);
+
+    const p2 = loader.loadById('a');
+    await flush();
+    expect(f.calls).toBe(1); // hit the cache; did not re-transport
+    const r2 = await p2;
+    expect(r2.ok && r2.meta.cached).toBe(true);
+    expect(r2.ok && r2.data).toEqual({ v: 1 });
+  });
 });

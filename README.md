@@ -19,7 +19,10 @@ Browser and server are co-equal consumers. The package is **read-only**.
 
 ## Status
 
-**Design only. No code yet.**
+**The core and three environments are implemented.** J1 and J10–J12 (core), J2 (`/node`),
+J3 (`/build`), and J5 (`/zod`) are merged. `/react` is blocked on
+[`design/20-contract.md`](design/20-contract.md) §12 U1. `design/30-slices.md` carries the
+running order and what remains.
 
 ## The specs
 
@@ -29,9 +32,9 @@ Read in order.
 |---|---|
 | [`design/00-brief.md`](design/00-brief.md) | What this is, why it exists, consumers, binding constraints, non-goals, MVP, definition of done |
 | [`design/10-design.md`](design/10-design.md) | Architecture with rationale — the layered core, sources, `at:`, caching, errors, validation, config split, digest |
-| [`design/20-contract.md`](design/20-contract.md) | Exact types, configuration and lockfile shapes, subpath exports, and the thirteen invariants |
+| [`design/20-contract.md`](design/20-contract.md) | Exact types, configuration and lockfile shapes, subpath exports, and the thirty-six invariants |
 | [`design/30-slices.md`](design/30-slices.md) | Ordered work units J1–J9 with acceptance criteria |
-| [`design/90-decisions.md`](design/90-decisions.md) | Ten decisions with rationale and reversal cost; deferred items; open register |
+| [`design/90-decisions.md`](design/90-decisions.md) | Every decision with rationale and reversal cost; deferred items; open register |
 
 ## In one paragraph
 
