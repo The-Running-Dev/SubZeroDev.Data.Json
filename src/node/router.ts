@@ -41,7 +41,7 @@ export function jsonRouter(loader: JsonLoader, ids: readonly SourceId[]): JsonRo
         if (result.ok) {
           res.status(200).json(envelope(result.data));
         } else {
-          res.status(STATUS_BY_REASON[result.reason]).json({ success: false, error: result.message });
+          res.status(STATUS_BY_REASON[result.reason]).json({ success: false, message: result.message });
         }
       },
       (err: unknown) => next(err),
