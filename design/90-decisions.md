@@ -1037,9 +1037,9 @@ with a **bolded lead sentence** — that sentence becomes the issue title when `
 - _(none currently open)_
 
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
-(`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this table. O26 and
-O27 were filed by the same command later the same day, as issues #29 and #30, and removed
-likewise. Track them all there. O24 is answered by D41 above.
+(`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this section. O26 and
+O27 were filed by the same command later the same day, as `The-Running-Dev/SubZeroDev.Data.Json`
+issues #29 and #30, and removed likewise. Track them all there. O24 is answered by D41 above.
 
 O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
 and the resolution it calls for is a `/contract` amendment, not a change to I13. That
