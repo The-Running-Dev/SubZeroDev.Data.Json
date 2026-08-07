@@ -29,6 +29,10 @@
     "./build": {
       "types": "./dist/build/index.d.ts",
       "import": "./dist/build/index.js"
+    },
+    "./zod": {
+      "types": "./dist/zod/index.d.ts",
+      "import": "./dist/zod/index.js"
     }
   },
   "bin": {
@@ -40,9 +44,18 @@
     "eslint": "^9.0.0",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.5.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.0.0",
+    "zod": "^4.0.0"
   },
   "dependencies": {
     "js-yaml": "^4.1.0"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
   }
 }
