@@ -505,6 +505,11 @@ entry resolved only by `/node`'s subpath (`90-decisions.md` D41, which names the
 rejected and why). `10-design.md` §7 Q3's recommended *shape* — a normal dependency of `/node`
 only, leaving the core at zero — is what shipped. The id is retired, not reused.
 
+**U3 is resolved.** The parser is `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a `dependencies`
+entry resolved only by `/node`'s subpath (`90-decisions.md` D41, which names the alternatives
+rejected and why). `10-design.md` §7 Q3's recommended *shape* — a normal dependency of `/node`
+only, leaving the core at zero — is what shipped. The id is retired, not reused.
+
 **U4 is resolved.** The engine's serializer has been read and cross-checked
 (`90-decisions.md` D39); its key ordering, escaping, and number formatting are verified
 identical, and its value domain is now this package's own (I35). The id is retired, not
