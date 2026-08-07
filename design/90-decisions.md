@@ -946,6 +946,78 @@ changes, and the digest of every value in the parsed-JSON domain is unaffected.
 
 ---
 
+## D41 — YAML parser: `js-yaml` ^4.1.0, matching what both converters already run (2026-08-07)
+
+**Context.** O24 (issue #18): `/node`'s `convertYamlToJson` needs a YAML parser and none is
+chosen. `10-design.md` §7 Q3 settled the *shape* — a normal dependency of `/node` only, leaving
+the core at zero — but named no parser, and `AGENTS.md` requires the alternatives rejected
+before J2.3 adds one.
+
+The constraint that decides this is not a property of the parsers. J2.3 requires the CLI
+"reproduces the behaviour of both existing converters", and J8.2 requires published artifact
+bytes to be **unchanged** after `Data` adopts it — with J8's out-of-scope line stating that a
+byte difference is a defect in J2.3, not an improvement to the content. The parser is therefore
+constrained by what the two converters already emit, not chosen on general merit.
+
+**What they already run,** read at `Docs-Template/scripts/pre-build.ts:66` and
+`Data/build.ts:3`: both are `js-yaml ^4.1.0`, both `yaml.load(content)` then
+`JSON.stringify(data, null, 2)`. They differ only in traversal — `Data`'s recurses and mirrors
+the directory tree, `Docs-Template`'s is flat — which is J2.3's `recursive directories
+included`, not a parser question.
+
+**Chosen.** `js-yaml` `^4.1.0`, called through `load()` on its `DEFAULT_SCHEMA`, as a
+`dependencies` entry resolved only by `/node`'s subpath. It is what both converters run today,
+at the same major, so J8.2 is satisfiable by construction rather than by luck. It is
+zero-dependency, so it does not reopen the core's claim transitively. Its types ship separately
+(`@types/js-yaml`), which is the one cost accepted here.
+
+**Measured, not assumed** (js-yaml 4.1.0, `yaml.load`):
+
+| Input | Result |
+|---|---|
+| `yes` / `no` / `on` / `off` | strings — v4 already uses the YAML 1.2 core boolean set |
+| `12:30` | string — no sexagesimal coercion |
+| `2025-08-24 00:00:00+00:00` | **`Date`**, which `JSON.stringify` renders `"2025-08-24T00:00:00.000Z"` |
+
+The third row is live: `Docs-Template/config/projects.yml` carries 27+ unquoted timestamps and
+`data/projects.json` shows the ISO-with-milliseconds form. Any parser on the YAML 1.2 core
+schema leaves those as the string as written, which is a different byte sequence in every
+published artifact that has one. That is the whole decision.
+
+**Rejected.**
+
+- **[`yaml`](https://www.npmjs.com/package/yaml) (eemeli)** — better on the merits in isolation:
+  YAML 1.2, TypeScript-native so no `@types/*` companion, zero-dependency. Rejected because
+  YAML 1.2's core schema has no timestamp type, so every `lastModified` above changes from
+  `"2025-08-24T00:00:00.000Z"` to `"2025-08-24 00:00:00+00:00"` — a J8.2 failure across the
+  whole corpus, for a package whose entire justification is deleting duplication without
+  changing what the consumers publish. Its duplicate-key handling also warns where js-yaml
+  throws, which changes failure behaviour as well as output.
+- **`js-yaml` pinned to `CORE_SCHEMA`** — drops the timestamp type and keeps everything else,
+  which is arguably the *correct* reading of a config file: `lastModified` is content, and
+  content silently becoming a `Date` and back is a coercion nobody asked for. Rejected here for
+  the same J8.2 reason, and recorded as a follow-up rather than dropped, because the argument
+  for it survives this decision.
+- **An optional peer dependency, or a parser port** — both already rejected by `10-design.md`
+  §7 Q3 (setup cost in three consumer repositories; ceremony for a build-time CLI with one
+  caller). Not reopened.
+
+**Known and retained.** `DEFAULT_SCHEMA` yields values outside `CanonicalValue` — a `Date` for
+a bare timestamp, and `Buffer`, `Map`, `Set` for `!!binary`, `!!omap`, `!!set`. This is
+contained inside `convertYamlToJson`, which stringifies to a file, so nothing outside it ever
+holds one: the converter's output is a JSON *file*, and it is not a `CanonicalValue` producer.
+It does mean the bridge recorded as contract gap 1 in `30-slices.md` — nothing yet turns
+`sources.*.yml` into a `SourceMap` — cannot simply reuse this call, since a timestamp in a
+source map would reach the loader as a `Date` and be rejected `json.schema` under I35/I36. That
+bridge is not designed here and this note is the reason it needs its own decision.
+
+**Reversibility:** cheap on the dependency, expensive on the output. Swapping the library
+touches one module and no public surface — `convertYamlToJson`'s §9 signature names no library.
+But any swap that changes type resolution rewrites every published artifact carrying a
+timestamp, which is J8.2's assertion failing, by design, so it is caught rather than silent.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -958,9 +1030,14 @@ changes, and the digest of every value in the parsed-JSON domain is unaffected.
 
 ## Open register
 
-All items that were open here (O1, O3, O4, O5, O15, O16, O24, O25) were filed as GitHub issues
+| | Item | Gated on |
+|---|---|---|
+| **O26** | **Should a bare YAML timestamp stay a string?** D41 kept `js-yaml`'s `DEFAULT_SCHEMA`, so `lastModified: 2025-08-24 00:00:00+00:00` publishes as `"2025-08-24T00:00:00.000Z"` — a coercion neither converter chose, retained because J8.2 requires byte-identity. `CORE_SCHEMA` would leave it as written. Changing it rewrites every artifact carrying a timestamp, so it is a content decision for `Docs-Template` and `Data`, not a parser one | A deliberate pass over those two repositories, after J8 lands |
+| **O27** | **Both converters swallow a per-file parse failure** — log to console, skip the file, continue, and report a count that silently excludes it. For `Data` that means a published artifact quietly disappearing on malformed YAML. Observed at `Docs-Template/scripts/pre-build.ts:630` and `Data/build.ts:66`; J2.3 reproduces it because reproducing the behaviour is the criterion | Whether `convertYamlToJson` should report failures rather than count around them — a contract question, since §9 returns only a `number` |
+
+All earlier items (O1, O3, O4, O5, O15, O16, O24, O25) were filed as GitHub issues
 by `/track` on 2026-08-07 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed
-from this table. Track them there.
+from this table. Track them there. O24 is answered by D41 above.
 
 O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
 and the resolution it calls for is a `/contract` amendment, not a change to I13. That
