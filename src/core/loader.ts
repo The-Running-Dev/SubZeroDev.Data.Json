@@ -12,8 +12,8 @@ function synthesizeRequest<T>(id: SourceId): JsonRequest<T> {
 
 /**
  * J1 scope was the inline pipeline only. J10 added the cache and file sources through
- * `ports.fs`, and J11 adds single-flight coalescing with a generation guard (30-slices.md).
- * http transport (J12) remains out of scope here.
+ * `ports.fs`, J11 added single-flight coalescing with a generation guard, and J12 adds http
+ * sources through `ports.fetch` with a timeout, retry, and size bound (30-slices.md).
  */
 export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): JsonLoader {
   const normalized = normalizeSourceMap(sources);
