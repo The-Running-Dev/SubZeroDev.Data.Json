@@ -1,6 +1,7 @@
+import { createCacheManager } from './cache-manager.js';
 import { checkRequiredPorts, normalizeSourceMap } from './config.js';
 import { JsonError } from './errors.js';
-import { runInlinePipeline } from './pipeline.js';
+import { runPipeline } from './pipeline.js';
 import type { JsonFailure, JsonLoader, JsonPorts, JsonRequest, JsonResult, SourceId, SourceMap } from './types.js';
 
 function synthesizeRequest<T>(id: SourceId): JsonRequest<T> {
@@ -8,17 +9,39 @@ function synthesizeRequest<T>(id: SourceId): JsonRequest<T> {
 }
 
 /**
- * J1 scope: the inline pipeline only. The cache, the in-flight join, and the http/file
- * provider branches are J10/J12 (30-slices.md) — `stats`, `invalidate`, and `dispose` are
- * therefore trivial here: there is nothing yet for them to report or release.
+ * J1 scope was the inline pipeline only. J10 adds the cache and file sources through
+ * `ports.fs` (30-slices.md). http transport (J12) and single-flight coalescing (J11) remain
+ * out of scope here.
  */
 export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): JsonLoader {
   const normalized = normalizeSourceMap(sources);
   checkRequiredPorts(normalized, ports);
 
+  const cache = createCacheManager(ports);
+
+  // I26/D31: a watch is registered lazily, on the first successful read of a file entry
+  // declaring an `mtime` policy, never at construction.
+  const watchedIds = new Set<SourceId>();
+  const unsubscribers: Array<() => void> = [];
+
+  function maybeRegisterWatch(id: SourceId, request: JsonRequest<unknown>, result: JsonResult<unknown>): void {
+    if (!result.ok || result.meta.cached || result.meta.provider !== 'file') return;
+    if (request.source !== undefined) return; // ad-hoc sources are never cached, so never watched
+    if (watchedIds.has(id)) return;
+    const declared = normalized.get(id);
+    if (!declared || declared.cache.kind !== 'mtime' || declared.source.kind !== 'file') return;
+    if (!ports.fs?.watch) return;
+
+    watchedIds.add(id);
+    const unsubscribe = ports.fs.watch(declared.source.path, () => cache.dropOne(id));
+    unsubscribers.push(unsubscribe);
+  }
+
   async function load<T>(request: JsonRequest<T>): Promise<JsonResult<T>> {
     const declared = normalized.get(request.id);
-    return runInlinePipeline(request, declared);
+    const result = await runPipeline(request, declared, ports, cache);
+    maybeRegisterWatch(request.id, request, result);
+    return result;
   }
 
   async function loadById<T>(id: SourceId): Promise<JsonResult<T>> {
@@ -52,16 +75,22 @@ export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): Jso
     }
   }
 
-  function invalidate(_id?: SourceId): void {
-    // No cache yet (J10). Nothing to invalidate.
+  function invalidate(id?: SourceId): void {
+    if (id !== undefined) {
+      cache.dropOne(id);
+    } else {
+      cache.dropAll();
+    }
   }
 
   function stats() {
-    return { entries: 0, hits: 0, misses: 0 };
+    return { entries: cache.entries, hits: cache.hits, misses: cache.misses };
   }
 
   function dispose(): void {
-    // No watchers registered yet (J10). Idempotent no-op.
+    for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
+    watchedIds.clear();
+    cache.dropAll();
   }
 
   const loader: JsonLoader = {

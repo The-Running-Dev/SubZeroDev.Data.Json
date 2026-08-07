@@ -43,6 +43,20 @@ function toUtf8Bytes(text: string): Uint8Array {
   return new Uint8Array(bytes);
 }
 
+/** UTF-8 byte length of `text`, without allocating the encoded bytes (I1: no TextEncoder). */
+export function utf8ByteLength(text: string): number {
+  let len = 0;
+  for (let i = 0; i < text.length; i++) {
+    const cp = text.codePointAt(i)!;
+    if (cp > 0xffff) i++;
+    if (cp < 0x80) len += 1;
+    else if (cp < 0x800) len += 2;
+    else if (cp < 0x10000) len += 3;
+    else len += 4;
+  }
+  return len;
+}
+
 /** SHA-256 over the UTF-8 encoding of `text`. Returns lowercase hex, 64 digits. */
 export function sha256Hex(text: string): string {
   const message = toUtf8Bytes(text);

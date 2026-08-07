@@ -28,6 +28,7 @@ export interface NormalizedEntry {
   readonly cache: CachePolicy;
   readonly timeoutMs: number;
   readonly retry: RetryPolicy;
+  readonly maxBytes: number | undefined;
 }
 
 function invalidEntry(id: SourceId, field: string, detail: string): never {
@@ -87,6 +88,8 @@ export function normalizeSourceMap(map: SourceMap): Map<SourceId, NormalizedEntr
 
     const timeoutMs = source.kind === 'http' ? ('timeoutMs' in entry && entry.timeoutMs !== undefined ? entry.timeoutMs : 10_000) : 0;
 
+    const maxBytes = 'maxBytes' in entry ? entry.maxBytes : undefined;
+
     normalized.set(id, {
       at: entry.at,
       source,
@@ -94,6 +97,7 @@ export function normalizeSourceMap(map: SourceMap): Map<SourceId, NormalizedEntr
       cache,
       timeoutMs,
       retry,
+      maxBytes,
     });
   }
 
