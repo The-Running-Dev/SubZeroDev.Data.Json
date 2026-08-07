@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { canonicalize, createJsonLoader, JsonError } from '../core/index.js';
+import { normalizeSourceMap } from '../core/config.js';
 import type { Digest, JsonFailure, JsonLock, JsonPorts, SourceEntry, SourceId, SourceMap } from '../core/index.js';
 
 export interface PrefetchOutput {
@@ -23,12 +24,16 @@ interface Resolved {
  * resolved `at: build` entry becomes `{ inline: <resolved data> }` there (I33, D24).
  */
 export async function prefetch(map: SourceMap, outDir: string, ports: JsonPorts): Promise<PrefetchOutput> {
+  // The loader below is constructed over a filtered map (at:runtime entries excluded, so I6's
+  // port checks never fire for ports prefetch never uses), which means normalizeSourceMap never
+  // sees those entries through createJsonLoader. Validate the full map's structure here first,
+  // so a malformed at:runtime entry still fails fast instead of reaching runtimeMap unchecked.
+  normalizeSourceMap(map);
+
   const buildIds = Object.entries(map.sources)
     .filter(([, entry]) => entry.at === 'build')
     .map(([id]) => id);
 
-  // Excludes only at:runtime, not just at:build, so a malformed entry (missing or invalid
-  // `at`) still reaches normalizeSourceMap's validation instead of being silently dropped.
   const loaderMap: SourceMap = {
     version: map.version,
     sources: Object.fromEntries(

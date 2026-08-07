@@ -81,6 +81,19 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
     expect(output.lock.sources['projects']?.digest).toMatch(/^sha256-[0-9a-f]{64}$/);
   });
 
+  it('a malformed at:runtime entry is rejected, not passed through unvalidated into runtimeMap', async () => {
+    const badMap: SourceMap = {
+      version: 1,
+      sources: {
+        projects: { at: 'build', path: '/projects.json', cache: 'manual' },
+        liveStatus: { at: 'runtime', url: 'https://api.example.com/status' } as unknown as SourceMap['sources'][string],
+      },
+    };
+    const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
+
+    await expect(prefetch(badMap, outDir, ports)).rejects.toThrow(JsonError);
+  });
+
   it('J3.7 rewrites at:build entries to inline, resolvable by a portless loader', async () => {
     // A map of only at:build sources, so the resulting runtimeMap needs no port at all.
     const buildOnlyMap: SourceMap = {
