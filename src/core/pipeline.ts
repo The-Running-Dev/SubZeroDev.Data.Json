@@ -1,7 +1,8 @@
-import { digestOf } from './canonical.js';
+import { canonicalize } from './canonical.js';
 import { normalizeSource } from './config.js';
+import { sha256Hex } from './sha256.js';
 import type { NormalizedEntry } from './config.js';
-import type { JsonMeta, JsonRequest, JsonResult, JsonSource, ReasonCode, SourceId } from './types.js';
+import type { Digest, JsonMeta, JsonRequest, JsonResult, JsonSource, ReasonCode, SourceId } from './types.js';
 
 function deepFreeze<T>(value: T): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
@@ -121,8 +122,28 @@ export async function runInlinePipeline<T>(
     });
   }
 
-  // 7. Digest, freeze.
-  const digest = request.digest ? digestOf(value) : null;
+  // 7. Domain validate (I35/I36): on every load, before freeze/cache, independent of digest.
+  // Canonicalizing here also produces the string a digest would hash, so it is computed once
+  // and reused below rather than canonicalizing the value a second time via digestOf.
+  let canonical: string;
+  try {
+    canonical = canonicalize(value);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return fail(request, id, 'json.schema', message, {
+      id,
+      provider: 'inline',
+      location,
+      bytes: 0,
+      digest: null,
+      cached: false,
+      attempts: 0,
+      validated: false,
+    });
+  }
+
+  // 8. Digest (reuses the canonical string above; domain already validated, so this cannot throw), freeze.
+  const digest: Digest | null = request.digest ? (`sha256-${sha256Hex(canonical)}` as Digest) : null;
   const frozen = deepFreeze(value);
   const baseMeta: JsonMeta = {
     id,
@@ -135,7 +156,7 @@ export async function runInlinePipeline<T>(
     validated: false,
   };
 
-  // 8. Validate. Per call, against the value.
+  // 9. Validate. Per call, against the value.
   if (!request.validate) {
     return { ok: true, reason: 'json.ok', data: frozen as T, meta: baseMeta };
   }

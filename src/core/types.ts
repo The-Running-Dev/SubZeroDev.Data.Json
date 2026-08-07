@@ -55,6 +55,15 @@ export type SourceSpec = JsonSource | string;
 
 export type Unwrap = 'none' | 'subzerodev' | ((raw: unknown) => unknown);
 
+/** The value domain the canonical serializer accepts (I35). */
+export type CanonicalValue =
+  | null
+  | boolean
+  | string
+  | number // finite only; NaN and ±Infinity are rejected
+  | readonly CanonicalValue[]
+  | { readonly [key: string]: CanonicalValue | undefined }; // undefined-valued keys are filtered
+
 export type Validator<T> = (raw: unknown) =>
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly message: string };

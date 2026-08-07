@@ -822,6 +822,130 @@ it should have anyway.
 
 ---
 
+## D39 — The engine's serializer is read; ours aligns to it rather than I13 relaxing (2026-08-07)
+
+**Context.** O16 (issue #17) recorded that I13 and `00-brief.md` §7.7 commit this package to
+byte-identity with `src/engine/src/core/persistence/canonical.ts` in `SubZeroDev.GameEngine`,
+which nobody who wrote the design had read. It has now been read, at `f7d8f59` (2026-07-28),
+and both serializers were run side by side over the engine's own seven test vectors plus
+eighteen JSON-domain edges.
+
+The engine's `canonicalStringify` is recursive: `null` literal; numbers through
+`JSON.stringify` behind a `Number.isFinite` check; booleans and strings through
+`JSON.stringify`; arrays in order; objects filter `undefined`-valued keys, sort with the
+default comparator, and emit `JSON.stringify(key):value`. It throws on `bigint`, on
+`undefined`, and on any other type.
+
+**Key ordering, string escaping, and number formatting are byte-identical** — verified across
+negative zero, `0.1 + 0.2`, the `1e21` and `1e-7` exponent forms, `MAX_SAFE_INTEGER`,
+non-ASCII keys, control characters, lone surrogates, empty containers, empty-string keys, and
+the lexicographic-not-numeric ordering of `"1"`, `"10"`, `"9"`. Three of the four properties
+§12 U4 listed as unverified are settled.
+
+**The value domains diverge, in opposite directions on each case:**
+
+| Value | This package | The engine |
+|---|---|---|
+| `{a: 1, b: undefined}` | throws `TypeError` | `{"a":1}` |
+| `{x: NaN}`, `±Infinity` | `{"x":null}` | throws |
+| `{x: 1n}` | throws | throws, different message |
+
+So I13 as literally worded does not hold: four of seven vectors match, two diverge, one agrees
+in behaviour but not in message text. `JSON.parse` produces none of these values, so on parsed
+JSON the two agree completely — but the digest is taken post-unwrap (D14), and a
+caller-supplied unwrap is an arbitrary function whose return value is not constrained to
+parsed JSON.
+
+**Chosen.** This package's serializer aligns to the engine's: filter `undefined`-valued keys,
+throw on non-finite numbers. I13 stands as written rather than being narrowed.
+
+The deciding argument is D9's direction of travel, not I13's letter. At J9 the engine deletes
+its copy and imports this one. The engine's throws are deliberate guard rails — its own
+comment says bigint "is rejected here on purpose" — and its determinism acceptance test rests
+on them. If this package is the more permissive of the two, J9 stops being a swap and becomes
+a silent weakening of the engine's guard, discovered later, with D14's expensive-to-reverse
+digest already in the field.
+
+**Rejected.** Narrowing I13 to claim byte-identity only within the parsed-JSON value domain
+and recording the two divergences as known-and-retained. It costs nothing today and defers the
+same decision to J9, at which point a consumer already depends on the answer. Also rejected:
+closing O16 as answered and filing the alignment separately, which leaves J1.5 blocked on a
+known defect rather than an unknown one — a weaker reason to stay blocked than the one being
+retired.
+
+**Not done here.** No code changed. Making the serializer throw means a throw reaching
+`load()`, which needs a `ReasonCode`: §10.2's `json.schema` covers a caller-supplied unwrap
+that *threw*, not one that *returned* a value outside the JSON domain. That is a contract
+amendment and belongs to `/contract`, which is O16's own stop condition.
+
+Reading the engine also surfaced a live defect on `main`, independent of this decision:
+`digestOf` in `src/core/pipeline.ts` is called outside the `try` that wraps `applyUnwrap`, so
+a caller unwrap returning an `undefined`-valued key makes `canonicalize` throw straight out of
+`load()`, violating I2. Aligning the serializer makes non-finite numbers reach the same path,
+so the two must land together.
+
+**Reversibility:** cheap. A pure function and one reason code; no persisted format changes, and
+the digest of every value in the parsed-JSON domain is unaffected.
+
+---
+
+## D40 — An out-of-domain post-unwrap value is `json.schema`, checked on every load (2026-08-07)
+
+**Context.** D39 aligned this package's canonical serializer to the engine's — filter
+`undefined`-valued keys, throw on non-finite numbers — and stopped short of implementing it,
+because a throwing serializer means a throw reaching `load()`, which I2 forbids. `20-contract.md`
+§10.2's `json.schema` covered a caller-supplied unwrap that *threw*, not one that *returned* a
+value outside the JSON domain. D39 named `/contract` as the owner of that gap. This is it.
+
+**Chosen.** Three things, and a type to make the first checkable.
+
+`CanonicalValue` (§3) states the domain: `null`, booleans, strings, finite numbers, arrays, and
+objects whose keys may be `undefined`. `Unwrap`'s function form keeps returning `unknown` — the
+domain is enforced at runtime, not by the type. I35 makes the serializer accept exactly that
+domain and rejects the rest at any depth.
+
+A value outside it is **`json.schema`**, reusing the existing code rather than adding a tenth.
+D28 rejected a distinct code for the `success: false` envelope on the cost of growing every
+exhaustive switch, D20's router mapping, and J3's boundary rendering; this condition has a
+weaker case than that one did, because it only ever fires on a programming error in the
+consumer's own unwrap or inline entry, which is fixed in development rather than rendered at
+runtime. §10.2's caller advice grows to name unwrap and inline alongside schema, and `message`
+says which.
+
+The check runs **on every load, before freeze and before the cache write, independently of
+`digest`** (I36). This is the part that is forced rather than chosen. Canonicalization only
+happens when a digest is requested, so checking only there would let an out-of-domain value into
+the cache — and I32 then computes a digest from that cached value on a later `digest: true`
+request, throwing on a cache hit, in a caller that did nothing wrong. Two callers of one id would
+also disagree about `ok` based on a flag neither can see the other set. D21's deep freeze already
+walks the same value, so the marginal cost is close to zero.
+
+I13 is also tightened rather than relaxed, per D39: byte-identity on output *and* agreement on
+which values are rejected, with message text explicitly not compared. Three of the seven engine
+vectors agree on rejection but not on wording, and comparing strings would fail a cross-check
+that is otherwise passing.
+
+**Rejected.** A tenth reason code, `json.canonical` — the distinction is real and points a
+developer at their own code rather than upstream, which is D20's own argument, but it is paid for
+by every exhaustive switch in three consumer repositories for a condition that never survives
+development. Reconsider it if a consumer needs the two rendered apart, which is the same standing
+offer D28 left.
+
+Also rejected: checking only where canonicalization runs, for the I32 hole above. Also rejected:
+narrowing `Unwrap`'s return type to `CanonicalValue`, which moves the constraint into the type
+system where it belongs but forces every caller to type an unwrap they currently write inline,
+and still needs the runtime check for `inline` entries, which are typed `unknown` by
+configuration.
+
+**Not done here.** No code changed, and the live defect D39 surfaced — `digestOf` called outside
+the `try` wrapping `applyUnwrap` in `src/core/pipeline.ts`, violating I2 — is `/fix`'s, not this
+command's. I36 is what that fix implements against.
+
+**Reversibility:** cheap. A type, two invariants, and one widened table row; no persisted format
+changes, and the digest of every value in the parsed-JSON domain is unaffected.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -837,6 +961,11 @@ it should have anyway.
 All items that were open here (O1, O3, O4, O5, O15, O16, O24, O25) were filed as GitHub issues
 by `/track` on 2026-08-07 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed
 from this table. Track them there.
+
+O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
+and the resolution it calls for is a `/contract` amendment, not a change to I13. That
+amendment is D40, and it closes `20-contract.md` §12 U4. What remains of O16 is code, not
+design: `/fix` implements I35 and I36.
 
 O6–O23 were the 2026-08-07 red-team pass against `00-brief.md` and `10-design.md`.
 Fifteen of them — O6–O14 and O18–O23 — were adjudicated in the `/contract` pass of the same

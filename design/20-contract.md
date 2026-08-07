@@ -7,7 +7,8 @@ All types are exported from the core (`@subzerodev/data-json`) unless a subpath 
 
 Sections §1–§9 keep their numbering and invariant ids from the 2026-08-06 draft.
 §10–§12 are appended. Amendments made in the 2026-08-07 pass are logged as
-`90-decisions.md` D22–D33.
+`90-decisions.md` D22–D33; the canonical value domain appended later the same day is D40,
+which discharges D39's deferral.
 
 ## 1. Result
 
@@ -80,6 +81,15 @@ must be declared in its object form.
 ```ts
 export type Unwrap = 'none' | 'subzerodev' | ((raw: unknown) => unknown);
 
+/** The value domain the canonical serializer accepts (I35). */
+export type CanonicalValue =
+  | null
+  | boolean
+  | string
+  | number                          // finite only; NaN and ±Infinity are rejected
+  | readonly CanonicalValue[]
+  | { readonly [key: string]: CanonicalValue | undefined };  // undefined-valued keys are filtered
+
 export type Validator<T> =
   (raw: unknown) =>
     | { readonly ok: true; readonly value: T }
@@ -106,6 +116,12 @@ export interface JsonRequest<T> {
   readonly digest?: boolean;         // default false; always true at build
 }
 ```
+
+`Unwrap`'s function form keeps returning `unknown`; `CanonicalValue` states the domain its
+return value must fall in, and the domain is enforced at runtime (I36), not by the type. A
+value outside it is `json.schema`, on every load and independently of `digest`. The same
+bound applies to an `inline` entry's `data`, which is the other way a value that never passed
+through `JSON.parse` reaches the pipeline.
 
 A request carries only what belongs to the caller. Everything that shapes the transport —
 `unwrap`, `headers`, `timeoutMs`, `retry`, `maxBytes`, and the cache policy — is declared
@@ -323,7 +339,7 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I10** | `meta.validated` is `true` only when a validator ran in this call and returned `ok`. Absent validator means `false`, never `true`. | core |
 | **I11** | `meta.attempts` equals the number of transport attempts, `1` on a first-try success, and `0` for `inline` and for a cache hit. A joined caller reports the attempts made by the load it joined, with `cached: false`. | core |
 | **I12** | A cache hit returns data equal to the first success for an equal validator, and `meta.cached` is `true`. | core |
-| **I13** | The core's canonical serializer is byte-identical to `src/engine/src/core/persistence/canonical.ts` on that module's test vectors. Cross-checked until J9, when the engine's copy is deleted. | core |
+| **I13** | The core's canonical serializer is byte-identical to `src/engine/src/core/persistence/canonical.ts` on that module's test vectors, and rejects exactly the values that module rejects. Message text is not compared — a rejection is compared as a rejection. Cross-checked until J9, when the engine's copy is deleted. | core |
 | **I14** | Every value `load` returns is deeply frozen — on a miss, with caching off, after a validator transform, and on a fallback. Mutability never depends on a cache policy the call site cannot see. | core |
 | **I15** | The cache line holds the post-unwrap, pre-validation value. Validation runs per call against it, so `validated` is a property of the call and never of the entry. | core |
 | **I16** | The cache key is the source id, scoped to the loader instance. An entry records the source it resolved from, and a lookup whose entry resolves elsewhere is a miss. A request supplying its own `source` is neither read from, written to, nor joined against the cache. | core |
@@ -345,6 +361,8 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I32** | A `digest: true` request against an entry stored without one computes the digest from the cached value and memoizes it. It never re-transports, and never returns `digest: null` under `ok: true`. | core |
 | **I33** | `prefetch` emits a `SourceMap` in which every `at: build` entry has become an inline entry carrying the resolved data. A runtime loader constructed from it resolves those ids without any port, and `10-design.md` §3.1's pipeline never branches on `at`. | build |
 | **I34** | An `unwrap: 'subzerodev'` envelope whose `success` is `false` yields `json.schema`, with the envelope's own error text in `message`. `ok: true` with `data: undefined` is unreachable. | core |
+| **I35** | The canonical serializer accepts exactly `CanonicalValue` (§3). At any depth it filters `undefined`-valued object keys, and rejects a non-finite number, a bare `undefined`, a `bigint`, a symbol, and a function. Rejection is a throw. The serializer is pure: it reaches no port and no ambient global. | core |
+| **I36** | The post-unwrap value is checked against I35's domain on every load — before it is frozen, before it is cached, and independently of `digest`. A value outside the domain yields `json.schema` and writes nothing to the cache. No cache entry ever holds an out-of-domain value, so I32's memoized digest never throws, and `digest` never changes a result's `ok`. | core |
 
 ## 9. Subpath Exports
 
@@ -436,7 +454,7 @@ export class JsonError extends Error {
 | `json.status` | A response arrived with a non-2xx status | Only 408, 429, 5xx | 408/429/5xx is an outage; any other status is a misconfigured URL |
 | `json.timeout` | No response inside one attempt's budget | Yes, while attempts remain | As `json.transport` |
 | `json.parse` | The body was not JSON, or was empty | No | Loud. The upstream is serving something other than what was declared |
-| `json.schema` | A declared unwrap could not produce a value, a `'subzerodev'` envelope reported `success: false` (I34), a caller-supplied unwrap threw, or a validator returned not-ok or threw | No | Loud. The payload changed shape, or this caller's schema is wrong. The cache entry stands |
+| `json.schema` | A declared unwrap could not produce a value, a `'subzerodev'` envelope reported `success: false` (I34), a caller-supplied unwrap threw or returned a value outside `CanonicalValue` (I35, I36), an `inline` entry carried such a value, or a validator returned not-ok or threw | No | Loud. The payload changed shape, or this caller's schema, unwrap, or inline entry is wrong. `message` names which. The cache entry stands |
 | `json.notFound` | A file source's path does not exist | No | The path is wrong, or the file has not been produced yet |
 | `json.tooLarge` | The body exceeded a declared `maxBytes` (I27) | No | Loud. Raise the bound deliberately or fix the upstream |
 | `json.unresolved` | The id is absent from the map, or the request is malformed | No | A programming or configuration error. `meta.provider` is `'none'` |
@@ -460,13 +478,17 @@ than a protocol.
 
 ## 12. Unresolved
 
-Six items the design does not determine. Each blocks the work named; none is invented here.
+Five items the design does not determine. Each blocks the work named; none is invented here.
 
 | | Item | Blocks |
 |---|---|---|
 | **U1** | **How `useJson(id)` reaches a `JsonLoader`.** `10-design.md` §2 gives `/react` only `useJson` and `JsonBoundary`. A context provider, or a loader parameter, is a new public interface, and the design names neither. The two signatures from the 2026-08-06 draft stand unchanged and are not implementable until this is decided. | J4 |
 | **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
 | **U3** | **Which YAML parser** (`10-design.md` §7 Q3). The design recommends a normal dependency of `/node` only, leaving the core at zero, but records no decision and names no parser. `90-decisions.md` requires an entry naming the alternatives rejected. | J2 |
-| **U4** | **What the engine's canonical serializer actually does** (`90-decisions.md` O16). I13 and `00-brief.md` §7.7 commit this package to byte-identity with a file nobody who wrote this contract has read; its value domain, key ordering, escaping, and number formatting are unverified. D14 marks the digest expensive to reverse. | J1.5, J9.1 |
 | **U5** | **A concurrency bound for eager resolution** (`90-decisions.md` O5, O17). `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map as an assumption rather than a guarantee. `loadMany` takes a caller-sized array, which that assumption does not reach. No bound is specified, so none is contracted. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
+
+**U4 is resolved.** The engine's serializer has been read and cross-checked
+(`90-decisions.md` D39); its key ordering, escaping, and number formatting are verified
+identical, and its value domain is now this package's own (I35). The id is retired, not
+reused — D39 and issue #17 cite it.

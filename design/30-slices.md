@@ -19,8 +19,8 @@ J8–J9 are adoption.**
 
 J1 is first because it carries the two assumptions the whole design rests on and neither has
 been tested: the digest's byte-identity with the GameEngine's serializer, which
-`90-decisions.md` D14 marks expensive to reverse and `20-contract.md` §12 U4 records as
-unverified, and the claim that the core survives the determinism guard (I1). J10–J12 follow
+`90-decisions.md` D14 marks expensive to reverse and D39 has now cross-checked, and the claim
+that the core survives the determinism guard (I1). J10–J12 follow
 in ascending order of what a mistake in them costs to undo.
 
 ---
@@ -37,7 +37,7 @@ everything (I33), so the newest mechanism in the design is the first one proven.
 I33 (runtime half), I34
 **Touches:** `src/core/`, the determinism guard config, the CI workflow, `package.json`
 **Depends on:** nothing
-**Blocked in part by:** §12 U4 (J1.5 only — the cross-check target is not in this tree)
+**Blocked by:** nothing. J1.5's blocker was §12 U4, resolved by `90-decisions.md` D39
 
 ### Done when
 
@@ -56,9 +56,12 @@ I33 (runtime half), I34
       or non-zero delay — checked against exactly the entries in the map supplied and never a
       wider set. Never a silent downgrade.
 - [ ] **J1.5** The core's canonical serializer is byte-identical to
-      `src/engine/src/core/persistence/canonical.ts` on that module's own test vectors (I13).
-      **Blocked by §12 U4** — that file is not in this tree and nobody who wrote this design
-      has read it. Do not guess at its behaviour; stop and report.
+      `src/engine/src/core/persistence/canonical.ts` on that module's own test vectors, and
+      rejects exactly the values that module rejects (I13). That file has been read and
+      cross-checked at `f7d8f59` (D39); its behaviour is recorded there and is not to be
+      guessed at again. The serializer accepts exactly `CanonicalValue` (I35): it filters
+      `undefined`-valued keys and throws on non-finite numbers, `undefined`, `bigint`,
+      symbols, and functions.
 - [ ] **J1.8** The determinism guard runs against `src/core/` in CI and passes (I1). The guard
       is copied from `src/engine/eslint.config.js`, and `AbortController` is permitted as the
       one named exception (D34) rather than by relaxing the rule.
@@ -92,8 +95,9 @@ J12.3. Neither id is reused.
 **Out of scope:** http and file resolution, and everything the cache implies — J10 and J12.
 Leave the provider branch for them unwritten rather than stubbing a reason code J10 would
 have to revert. Do not invent an export for the canonical serializer to satisfy J9.1; §9
-declares none, and that gap is recorded below. Do not attempt to resolve U4 by reconstructing
-what the engine's serializer probably does.
+declares none, and that gap is recorded below. Do not reconstruct what the engine's
+serializer probably does either — D39 records what it actually does, and that record is the
+only source for it.
 
 ---
 
@@ -490,7 +494,7 @@ build digests as content-pack identity.
 
 **Touches:** `SubZeroDev.GameEngine`
 **Depends on:** J1, and a GameEngine consumer that actually loads JSON
-**Blocked by:** §12 U4, and by the missing export recorded below
+**Blocked by:** the missing export recorded below. §12 U4 no longer blocks it (D39)
 
 ### Done when
 
@@ -515,8 +519,9 @@ Once the core slices land, a probe that **keeps** reproducing means an amendment
 land. That check belongs at the end of J12, when the core is complete: run the harness
 against the real core and account for every probe that still reproduces, either as a genuine
 regression or as a finding the design accepted. Probes for findings still open — F9
-(redirects, U2), F11 (fan-out, U5), F10 (untestable, U4) — are expected to keep reproducing
-and are not regressions.
+(redirects, U2) and F11 (fan-out, U5) — are expected to keep reproducing and are not
+regressions. F10 (untestable) rested on U4 and no longer has that excuse: D39 read the
+cross-check target, so a probe that still reproduces after J1.5 is a genuine regression.
 
 ## Contract gaps this pass surfaced
 
