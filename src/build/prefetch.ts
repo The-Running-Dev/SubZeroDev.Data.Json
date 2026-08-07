@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { canonicalize } from '../core/canonical.js';
+import { normalizeSourceMap } from '../core/config.js';
 import { createJsonLoader, JsonError } from '../core/index.js';
 import type { Digest, JsonFailure, JsonLock, JsonPorts, SourceEntry, SourceId, SourceMap } from '../core/index.js';
-import { canonicalize } from '../core/canonical.js';
 
 export interface PrefetchOutput {
   readonly lock: JsonLock;
@@ -24,11 +25,23 @@ interface Resolved {
  * resolved `at: build` entry becomes `{ inline: <resolved data> }` there (I33, D24).
  */
 export async function prefetch(map: SourceMap, outDir: string, ports: JsonPorts): Promise<PrefetchOutput> {
-  const loader = createJsonLoader(map, ports);
+  // The loader below is constructed over a filtered map (at:runtime entries excluded, so I6's
+  // port checks never fire for ports prefetch never uses), which means normalizeSourceMap never
+  // sees those entries through createJsonLoader. Validate the full map's structure here first,
+  // so a malformed at:runtime entry still fails fast instead of reaching runtimeMap unchecked.
+  normalizeSourceMap(map);
 
   const buildIds = Object.entries(map.sources)
     .filter(([, entry]) => entry.at === 'build')
     .map(([id]) => id);
+
+  const loaderMap: SourceMap = {
+    version: map.version,
+    sources: Object.fromEntries(
+      Object.entries(map.sources).filter(([, entry]) => entry.at !== 'runtime'),
+    ),
+  };
+  const loader = createJsonLoader(loaderMap, ports);
 
   const results = await Promise.all(buildIds.map((id) => loader.load({ id, digest: true })));
 
