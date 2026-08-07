@@ -23,10 +23,10 @@ export function canonicalize(value: unknown): string {
   }
   if (typeof value === 'object') {
     const record = value as Record<string, unknown>;
-    const keys = Object.keys(record)
-      .filter((key) => record[key] !== undefined)
-      .sort();
-    const parts = keys.map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`);
+    const entries = Object.entries(record)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const parts = entries.map(([key, v]) => `${JSON.stringify(key)}:${canonicalize(v)}`);
     return `{${parts.join(',')}}`;
   }
   throw new TypeError(`canonicalize: unsupported value of type ${typeof value}`);
