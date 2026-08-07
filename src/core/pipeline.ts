@@ -34,6 +34,18 @@ function locationOf(source: JsonSource): string {
   return '';
 }
 
+/**
+ * D42: a cache lookup identifies its entry by the declared source, never by where the bytes
+ * last resolved from — `location` (I30, D37) records the *final* location, which a redirected
+ * http source's next read would otherwise never match against its own still-static declaration.
+ */
+function sourceEquals(a: JsonSource, b: JsonSource): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'http') return a.url === (b as typeof a).url;
+  if (a.kind === 'file') return a.path === (b as typeof a).path;
+  return false;
+}
+
 function emptyMeta(id: SourceId): JsonMeta {
   return {
     id,
@@ -183,7 +195,7 @@ interface CacheMiss {
  */
 async function checkCache(
   id: SourceId,
-  location: string,
+  source: JsonSource,
   policy: CachePolicy,
   ports: JsonPorts,
   cache: CacheManager,
@@ -192,12 +204,12 @@ async function checkCache(
   const existing = cache.lookup(id);
 
   if (policy.kind === 'manual') {
-    if (existing && existing.location === location) return { hit: true, entry: existing };
+    if (existing && sourceEquals(existing.source, source)) return { hit: true, entry: existing };
     return { hit: false, stamp: null };
   }
 
   if (policy.kind === 'ttl') {
-    if (existing && existing.location === location && existing.storedAt !== null && ports.clock!() - existing.storedAt < policy.ttlMs) {
+    if (existing && sourceEquals(existing.source, source) && existing.storedAt !== null && ports.clock!() - existing.storedAt < policy.ttlMs) {
       return { hit: true, entry: existing };
     }
     return { hit: false, stamp: null };
@@ -207,7 +219,7 @@ async function checkCache(
   const stamp = fileStat ? await fileStat() : null;
   if (
     existing &&
-    existing.location === location &&
+    sourceEquals(existing.source, source) &&
     existing.stamp !== null &&
     stamp !== null &&
     existing.stamp.mtimeMs === stamp.mtimeMs &&
@@ -579,7 +591,7 @@ export async function runPipeline<T>(
       return finalizeCore(request, id, core, 'http', location, null, null);
     }
 
-    const check = await checkCache(id, location, declared!.cache, ports, cache, null);
+    const check = await checkCache(id, source, declared!.cache, ports, cache, null);
     if (check.hit) {
       cache.recordHit();
       return finishFromCache(request, id, check.entry, cache);
@@ -632,7 +644,7 @@ export async function runPipeline<T>(
     return finalizeCore(request, id, core, 'file', location, null, null);
   }
 
-  const check = await checkCache(id, location, declared!.cache, ports, cache, async () => {
+  const check = await checkCache(id, source, declared!.cache, ports, cache, async () => {
     try {
       return await ports.fs!.stat(source.path);
     } catch {
