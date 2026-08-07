@@ -110,4 +110,18 @@ describe('jsonRouter (J2.4, J2.7)', () => {
     expect(calls.status).toBe(status);
     expect(next).not.toHaveBeenCalled();
   });
+
+  it('emits the failure body as { success: false, message }, matching what the core unwrap reads (I28, D45)', async () => {
+    const loader = fakeLoader({
+      a: { ok: false, reason: 'json.status', message: 'boom', data: null, meta: meta() } as Failure,
+    });
+    const router = jsonRouter(loader, ['a']);
+    const { res, calls } = fakeRes();
+    const next = vi.fn();
+
+    router({ method: 'GET', params: { id: 'a' } }, res, next);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(calls.body).toEqual({ success: false, message: 'boom' });
+  });
 });
