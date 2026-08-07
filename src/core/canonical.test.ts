@@ -31,3 +31,26 @@ describe('canonicalize / digestOf (I5, J1.10)', () => {
     expect(canonicalize([3, 1, 2])).toBe('[3,1,2]');
   });
 });
+
+describe('canonicalize domain enforcement (I35)', () => {
+  it('rejects NaN rather than silently coercing it (JSON.stringify(NaN) === "null")', () => {
+    expect(() => canonicalize(NaN)).toThrow(TypeError);
+    expect(() => canonicalize({ x: NaN })).toThrow(TypeError);
+  });
+
+  it('rejects ±Infinity', () => {
+    expect(() => canonicalize(Infinity)).toThrow(TypeError);
+    expect(() => canonicalize(-Infinity)).toThrow(TypeError);
+  });
+
+  it('rejects a bare undefined, a function, a bigint, and a symbol', () => {
+    expect(() => canonicalize(undefined)).toThrow(TypeError);
+    expect(() => canonicalize(() => 1)).toThrow(TypeError);
+    expect(() => canonicalize(1n)).toThrow(TypeError);
+    expect(() => canonicalize(Symbol('s'))).toThrow(TypeError);
+  });
+
+  it('filters undefined-valued object keys rather than rejecting them', () => {
+    expect(canonicalize({ a: 1, b: undefined })).toBe('{"a":1}');
+  });
+});

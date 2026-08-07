@@ -1,4 +1,4 @@
-import { digestOf } from './canonical.js';
+import { canonicalize, digestOf } from './canonical.js';
 import { normalizeSource } from './config.js';
 import type { NormalizedEntry } from './config.js';
 import type { JsonMeta, JsonRequest, JsonResult, JsonSource, ReasonCode, SourceId } from './types.js';
@@ -121,7 +121,24 @@ export async function runInlinePipeline<T>(
     });
   }
 
-  // 7. Digest, freeze.
+  // 7. Domain validate (I35/I36): on every load, before freeze/cache, independent of digest.
+  try {
+    canonicalize(value);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return fail(request, id, 'json.schema', message, {
+      id,
+      provider: 'inline',
+      location,
+      bytes: 0,
+      digest: null,
+      cached: false,
+      attempts: 0,
+      validated: false,
+    });
+  }
+
+  // 8. Digest (domain already validated above, so this cannot throw), freeze.
   const digest = request.digest ? digestOf(value) : null;
   const frozen = deepFreeze(value);
   const baseMeta: JsonMeta = {
@@ -135,7 +152,7 @@ export async function runInlinePipeline<T>(
     validated: false,
   };
 
-  // 8. Validate. Per call, against the value.
+  // 9. Validate. Per call, against the value.
   if (!request.validate) {
     return { ok: true, reason: 'json.ok', data: frozen as T, meta: baseMeta };
   }

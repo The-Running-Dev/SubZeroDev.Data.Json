@@ -228,6 +228,29 @@ describe('J1.15: loadById and loadMany', () => {
   });
 });
 
+describe('I35/I36: canonical value domain, enforced on every load', () => {
+  it('a non-finite number in an inline entry yields json.schema even when digest is not requested', async () => {
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: NaN } } as never }));
+    const result = await loader.loadById('a');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('json.schema');
+  });
+
+  it('a function-valued inline entry yields json.schema, never throws, even with digest requested', async () => {
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { fn: () => 1 } } as never }));
+    const result = await loader.load({ id: 'a', digest: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('json.schema');
+  });
+
+  it('an in-domain value still succeeds and still digests when requested', async () => {
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: 1 } } as never }));
+    const result = await loader.load({ id: 'a', digest: true });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.meta.digest).toMatch(/^sha256-[0-9a-f]{64}$/);
+  });
+});
+
 describe('preload', () => {
   it('rejects with JsonError(preload.failed) naming every failed id when any id fails', async () => {
     const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: 1 } as never }));
