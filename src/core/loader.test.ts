@@ -135,6 +135,47 @@ describe('J1.12 / I4: unwrap is never inferred from payload shape', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data).toEqual({ x: 1 });
   });
+
+  it("I34: 'subzerodev' with success: true and no data is unreachable as ok:true — yields json.schema, never throws", async () => {
+    const loader = createJsonLoader(
+      inlineMap({ a: { at: 'build', inline: { success: true }, unwrap: 'subzerodev' } as never }),
+    );
+    const result = await loader.loadById('a');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('json.schema');
+  });
+
+  it("I34: the same missing-data envelope does not throw even when digest is requested", async () => {
+    const loader = createJsonLoader(
+      inlineMap({ a: { at: 'build', inline: { success: true }, unwrap: 'subzerodev' } as never }),
+    );
+    const result = await loader.load({ id: 'a', digest: true });
+    expect(result.ok).toBe(false);
+  });
+
+  it('20-contract.md §3: an ad-hoc request.source receives unwrap: none, not the declared entry\'s unwrap', async () => {
+    const loader = createJsonLoader(
+      inlineMap({ a: { at: 'build', inline: { success: true, data: { x: 1 } }, unwrap: 'subzerodev' } as never }),
+    );
+    const result = await loader.load<{ success: boolean; data: { x: number } }>({
+      id: 'a',
+      source: { kind: 'inline', data: { success: true, data: { x: 1 } } } as never,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toEqual({ success: true, data: { x: 1 } });
+  });
+});
+
+describe('I2, I24: a declared source kind J1 does not implement never throws or rejects', () => {
+  it('an http entry (fetch port supplied) returns json.unresolved rather than throwing', async () => {
+    const loader = createJsonLoader(
+      inlineMap({ a: { at: 'runtime', url: 'https://example.test/a.json', cache: 'manual' } as never }),
+      { fetch: (async () => new Response('{}')) as never, schedule: (() => 0) as never },
+    );
+    const result = await loader.loadById('a');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('json.unresolved');
+  });
 });
 
 describe('J1.14 / I3, I10, I11: fallback, inline meta, validated', () => {

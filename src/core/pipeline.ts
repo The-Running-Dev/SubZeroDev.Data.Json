@@ -59,6 +59,9 @@ function applyUnwrap(parsed: unknown, unwrap: NormalizedEntry['unwrap']): unknow
     if (envelope.success === false) {
       throw new Error(envelope.message ?? "envelope reported 'success: false'");
     }
+    if (envelope.data === undefined) {
+      throw new Error("declared envelope 'subzerodev' reported success with no data");
+    }
     return envelope.data;
   }
   throw new Error(`unknown unwrap mode ${String(unwrap)}`);
@@ -76,18 +79,24 @@ export async function runInlinePipeline<T>(
   const id = request.id;
 
   // 1. Resolve.
-  const source = request.source !== undefined ? normalizeSource(request.source) : declared?.source;
+  const isAdHoc = request.source !== undefined;
+  const source = isAdHoc ? normalizeSource(request.source!) : declared?.source;
   if (!id || !source) {
     return fail(request, id, 'json.unresolved', `no source declared for id '${id}'`, emptyMeta(id || ''));
   }
 
-  const unwrap = declared?.unwrap ?? 'none';
+  // An ad-hoc request.source is caller-owned and inherits no transport shaping (20-contract.md §3).
+  const unwrap = isAdHoc ? 'none' : (declared?.unwrap ?? 'none');
   const location = locationOf(source);
 
   if (source.kind !== 'inline') {
     // Out of scope for J1 (30-slices.md): the http/file provider branches belong to J12/J10.
-    throw new Error(
-      `runInlinePipeline: source '${id}' is '${source.kind}', which J1 does not implement (see J10/J12)`,
+    return fail(
+      request,
+      id,
+      'json.unresolved',
+      `source '${id}' is '${source.kind}', which this build does not implement (see J10/J12)`,
+      emptyMeta(id),
     );
   }
 
