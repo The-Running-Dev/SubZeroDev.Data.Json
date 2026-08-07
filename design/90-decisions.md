@@ -1028,9 +1028,13 @@ timestamp, which is J8.2's assertion failing, by design, so it is caught rather 
 | **F4** | `SubZeroDev.Data.Yaml` or `.Sql` siblings | A consumer. The namespace exists for them; nothing is designed |
 | **F5** | Streaming and large-payload handling | A payload large enough to matter. Everything here assumes a payload that fits in memory |
 
-## Open register
+## Open
 
-Empty. Every item is tracked as a GitHub issue.
+Empty. Every item is tracked as a GitHub issue. New items go here as bullets, each starting
+with a **bolded lead sentence** — that sentence becomes the issue title when `/track` files it
+(see `.claude/commands/track.md`, "Open items → issues").
+
+- _(none currently open)_
 
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this table. O26 and
