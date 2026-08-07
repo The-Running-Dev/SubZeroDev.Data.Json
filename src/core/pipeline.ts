@@ -34,14 +34,23 @@ function locationOf(source: JsonSource): string {
   return '';
 }
 
+function headersEqual(a: Readonly<Record<string, string>> | undefined, b: Readonly<Record<string, string>> | undefined): boolean {
+  const aKeys = Object.keys(a ?? {});
+  const bKeys = Object.keys(b ?? {});
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a![key] === b?.[key]);
+}
+
 /**
  * D42: a cache lookup identifies its entry by the declared source, never by where the bytes
  * last resolved from — `location` (I30, D37) records the *final* location, which a redirected
  * http source's next read would otherwise never match against its own still-static declaration.
+ * The comparison is the full declared `JsonSource`, headers included: a source that differs
+ * only by header is a different declaration, not the one the cached bytes were fetched under.
  */
 function sourceEquals(a: JsonSource, b: JsonSource): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === 'http') return a.url === (b as typeof a).url;
+  if (a.kind === 'http') return a.url === (b as typeof a).url && headersEqual(a.headers, (b as typeof a).headers);
   if (a.kind === 'file') return a.path === (b as typeof a).path;
   return false;
 }
