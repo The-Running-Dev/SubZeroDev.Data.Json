@@ -1360,6 +1360,58 @@ consumer logs against it, since the values become load-bearing in someone's dash
 
 ---
 
+## D53 — `useJson` reaches its loader through a `JsonProvider` context (2026-08-08)
+
+**Context.** `20-contract.md` §12 U1, and issue #19 (O25). The 2026-08-06 draft gave `/react`
+two signatures — `useJson<T>(id)` and `JsonBoundary({ id, fallback, children })` — and neither
+carries a loader, so neither is implementable. J4 was blocked on this, and J6+J7 transitively
+through it, which is `00-brief.md` §7.3's definition-of-done gate.
+
+**Chosen.** A `JsonProvider({ loader, children })` context component, `/react`'s third export.
+`useJson` and `JsonBoundary` read the nearest provider above them; both draft signatures stand
+unchanged. The provider **accepts** a loader and never constructs one, keeping
+`createJsonLoader`, the source map, and the ports in the composition root — where
+`config.missingPort`'s own remedy already points. It never calls `dispose()` on unmount, since
+a component does not dispose what it did not create (D31). Rendering either member with no
+provider above it throws `JsonError('config.missingProvider')`, a new member of §10's closed
+code union; I24 already forbids a bare `Error`, so a throw here needs a code. Constrained by
+I39.
+
+**Rejected.** A **loader parameter** — `useJson(loader, id)`, `JsonBoundary({ loader, ... })` —
+which adds no public interface at all and is the more explicit of the two. It loses on the
+boundary rather than the hook: nested boundaries prop-drill the loader, and every consumer that
+adopts it builds its own context to avoid threading a loader through every call site. That is
+five consumers with five solutions, which is `00-brief.md` §2's complaint verbatim, and it
+collides with J6.3, which has `DataProvider` survive as a feature gate rather than as a
+component that also plumbs data access.
+
+Also rejected: a **module-level singleton** (`setDefaultLoader()`), which needs no provider
+mounted and no signature change. It is module-level mutable state that leaks across requests
+under SSR — and Docusaurus server-renders — it makes the process the cache unit where
+`10-design.md` §5 makes the loader the unit, and it is the ambient wiring `00-brief.md` §4
+rules out. Not offered as a live option.
+
+Also rejected, **for now rather than on the merits**: `useJsonLoader(): JsonLoader`, an escape
+hatch to `invalidate`, `preload`, and `loadMany` from a component. J4 states no need for it and
+`refetch()` covers the common case. D44's reasoning applies unchanged — adding an export later
+is additive, removing one after publication is not — so it waits for a slice that states the
+requirement. Recorded here as known-and-retained, not dropped: without it, a consumer that
+needs those members re-adds its own context to reach the loader, which is the duplication this
+package exists to delete, and that is the signal that the requirement has arrived.
+
+Also rejected: returning `json.unresolved` when no provider is mounted, which needs no new
+error code and keeps `/react` throw-free. `20-contract.md` §10.2 defines that code as an absent
+id or a malformed request; a missing provider is neither, and `JsonBoundary` would render a
+developer a wrong-id state when the fault is wiring.
+
+**Not implemented here.** No `src/react/` exists. This unblocks J4; it does not perform it.
+
+**Reversibility:** cheap today — 0.1.0 is unpublished, and I37's guard already covers
+`src/react/`. Expensive once published: removing `JsonProvider` or changing where the loader
+comes from is a breaking change at every call site in every consumer.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

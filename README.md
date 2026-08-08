@@ -12,7 +12,7 @@ Browser and server are co-equal consumers. The package is **read-only**.
 @subzerodev/data-json
   .          core     load · sources · result · reasons · cache · canonical · digest
   /node      Node     file source (mtime-cached) · yaml→json CLI · GET-only express mount
-  /react     React    useJson · JsonBoundary
+  /react     React    JsonProvider · useJson · JsonBoundary
   /zod       zod      zodValidator
   /build     build    prefetch · json.lock · public/server gate
 ```
@@ -20,9 +20,10 @@ Browser and server are co-equal consumers. The package is **read-only**.
 ## Status
 
 **The core and three environments are implemented.** J1 and J10–J12 (core), J2 (`/node`),
-J3 (`/build`), and J5 (`/zod`) are merged. `/react` is blocked on
-[`design/20-contract.md`](design/20-contract.md) §12 U1. `design/30-slices.md` carries the
-running order and what remains.
+J3 (`/build`), and J5 (`/zod`) are merged. `/react` is designed but not built: J4 was blocked
+on [`design/20-contract.md`](design/20-contract.md) §12 U1 and is now unblocked, the loader
+arriving through a `JsonProvider` context (`design/90-decisions.md` D53).
+`design/30-slices.md` carries the running order and what remains.
 
 ## The specs
 

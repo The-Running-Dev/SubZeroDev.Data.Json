@@ -121,7 +121,7 @@ leaf's in-degree from siblings is zero, both checkable mechanically.
 |---|---|---|---|
 | **core** | The pipeline, the source union, the result and reason vocabulary, the cache, canonical serialization, the digest, the port interfaces | Nothing. No module, no global | `load`, the loader factory, source normalization, and the types everything else is written against |
 | **node** | The Node filesystem port, the YAML→JSON conversion the CLI wraps, the GET-only HTTP mount, the response envelope | core, the Node runtime, a YAML parser (§7 Q3) | A filesystem port, a composed port set, a router, the envelope and its producer |
-| **react** | The hook and boundary bindings, mount and unmount lifecycle | core, React as an optional peer | `useJson`, `JsonBoundary` |
+| **react** | The hook and boundary bindings, mount and unmount lifecycle, and the context a call site reaches its loader through | core, React as an optional peer | `JsonProvider`, `useJson`, `JsonBoundary` |
 | **zod** | The adapter from a zod schema to the core's validator seam | core, zod as an optional peer | A validator factory |
 | **build** | Build-time resolution, artifact and lockfile emission, the public/server gate | core, the Node runtime | Prefetch, and the bundle assertion |
 
