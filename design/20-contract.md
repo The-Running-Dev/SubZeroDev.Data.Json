@@ -21,7 +21,13 @@ nothing here obliged. D52 also settles §4's `phase` mapping, which the design d
 determine — the one thing in this pass that is a design decision rather than a transcription.
 A later pass the same day answers §12 U1 as D53: `/react` gains a `JsonProvider` context,
 I39 constrains it, and `config.missingProvider` joins §10's closed code union. That one is a
-design decision outright — the design named no mechanism for it at all.
+design decision outright — the design named no mechanism for it at all. A further
+re-derivation the same day appends I40 and I41 as D59 and D60 — the three cache policies' hit
+conditions, and the loader's construction-time normalization of its source map, both
+determined by `10-design.md` and neither previously carried here — and extends I12 to say
+where a hit's `bytes` and `location` come from. It also opens U9, and decides nothing for it:
+`JsonRequest.cache: false` is declared in §3 and implemented, governed by no invariant and
+exercised by no test, and whether it participates in I17's single-flight is undetermined.
 
 ## 1. Result
 
@@ -360,8 +366,9 @@ Anything derived from a clock belongs in build logs, not here.
 ## 8. Invariants
 
 Each invariant is testable, and the test must fail when the invariant is removed
-(`00-brief.md` §7.1). I1–I13 keep their ids; I14–I36 were appended in the 2026-08-07 pass, and
-I37 and I38 in the 2026-08-08 re-derivation.
+(`00-brief.md` §7.1). I1–I13 keep their ids; I14–I36 were appended in the 2026-08-07 pass,
+I37 and I38 in the 2026-08-08 re-derivation, I39 with D53 later that day, and I40 and I41 in
+the re-derivation after it.
 
 | | Invariant | Owner |
 |---|---|---|
@@ -376,7 +383,7 @@ I37 and I38 in the 2026-08-08 re-derivation.
 | **I9** | A source's `at` value may change without any call site changing. | core, build |
 | **I10** | `meta.validated` is `true` only when a validator ran in this call and returned `ok`. Absent validator means `false`, never `true`. | core |
 | **I11** | `meta.attempts` equals the number of transport attempts, `1` on a first-try success, and `0` for `inline` and for a cache hit. A joined caller reports the attempts made by the load it joined, with `cached: false`. | core |
-| **I12** | A cache hit returns data equal to the first success for an equal validator, and `meta.cached` is `true`. | core |
+| **I12** | A cache hit returns data equal to the first success for an equal validator, and `meta.cached` is `true`. Its `meta.bytes` and `meta.location` are the entry's stored values, never re-derived on this call: the payload was that size, and came from that location, when it was read. | core |
 | **I13** | The core's canonical serializer is byte-identical to `src/engine/src/core/persistence/canonical.ts` on that module's test vectors, and rejects exactly the values that module rejects — **except that it may reject strictly more**, never less (D49). D39 read that module at `f7d8f59` and recorded no non-plain-object vector, so whether it rejects a `Date` is unknown and is not to be guessed at; this package rejects one. Stricter is the safe direction under D39's own argument, since J9 swaps this implementation in beneath the engine's determinism acceptance test. Message text is not compared — a rejection is compared as a rejection. Cross-checked until J9, when the engine's copy is deleted. | core |
 | **I14** | Every value `load` returns is deeply frozen — on a miss, with caching off, after a validator transform, and on a fallback. Mutability never depends on a cache policy the call site cannot see. | core |
 | **I15** | The cache line holds the post-unwrap, pre-validation value. Validation runs per call against it, so `validated` is a property of the call and never of the entry. | core |
@@ -404,6 +411,8 @@ I37 and I38 in the 2026-08-08 re-derivation.
 | **I37** | No leaf module imports another leaf. A specifier in `src/node/`, `src/build/`, `src/zod/`, or `src/react/` is relative within its own directory, a relative reach into `src/core/`, or a bare specifier for a dependency that module declares — never a reach into a sibling leaf, across static imports, dynamic `import()`, and re-exports. `/build` in particular never imports `/node`, which is what keeps `FileSystemPort` read-only (D19). I1 is the core's out-degree and this is each leaf's in-degree from its siblings; together they are the whole of `10-design.md` §2's star graph, and neither half rests on review (D50, D51). Test files are outside the guard: a fixture is not a shipped edge. | node, build, zod, react |
 | **I38** | A supplied `log` port receives exactly one `JsonEvent` per `load` call that completes — including each id resolved through `loadById`, `loadMany`, `preload`, and `prefetch`, and including a caller that joined an in-flight load rather than starting one. The event is emitted after the result is assembled and before `load` resolves, and carries that result's own `id`, `reason`, and `meta`, with `phase` as §4 defines it. Delivery is fire-and-forget: a `log` port that throws changes neither the result nor the cache and never makes `load` throw (I2). No other member emits. | core |
 | **I39** | `useJson` and `JsonBoundary` read their loader from the nearest `JsonProvider` above them and from nowhere else — no module-level default, no ambient singleton, no fallback loader. Rendered with none above them, each throws `JsonError('config.missingProvider')`. That throw does not weaken I2: no loader was reached, so `load` was never called. `JsonProvider` accepts a loader and never constructs one, and never calls `dispose()` on unmount — disposal stays with whoever created it (D31). Two loaders coexist in one tree as nested providers, and the nearest wins, which is what keeps §5's per-loader cache boundary true under React. | react |
+| **I40** | A lookup is a hit only where I16's source comparison passes **and** the entry's declared policy admits it. `manual` admits any stored entry, until `invalidate` drops it. `ttl` admits an entry whose `storedAt` is non-null and for which `clock() - storedAt < ttlMs` — the window is half-open, so an entry exactly at `ttlMs` has expired, and an entry stored without a clock is never a hit. `mtime` admits an entry whose stored `(mtimeMs, size)` equals the stamp taken before this read, with a null stamp on either side never a hit (I25). Everything else is a miss, and it is a miss that §5's in-flight join is checked against. | core |
+| **I41** | A loader normalizes its `SourceMap` once, at construction. The set of ids it can resolve, and each entry's normalized source, `unwrap`, cache policy, timeout, retry, and `maxBytes`, are fixed for that loader's life: adding, removing, or editing an entry in the `SourceMap` object after `createJsonLoader` returns changes no later load, and normalization is never re-derived per read. A changed source map means a new loader, which is what makes the map a construction input rather than mutable state the cache would have to track. | core |
 
 ## 9. Subpath Exports
 
@@ -552,9 +561,12 @@ than a protocol.
 
 ## 12. Unresolved
 
-Five items the design does not determine. Each blocks the work named; none is invented here.
+Six items the design does not determine. Each blocks the work named; none is invented here.
 U7 and U8 are `30-slices.md`'s "contract gaps this pass surfaced" 2 and 1, moved to the
 register that owns them — that section recorded them, this one is where they are answered.
+U9 is different from the rest in one way worth stating: it is not a gap ahead of unwritten
+work but a contradiction inside shipped code, so leaving it here leaves I17 knowingly false
+as written.
 
 | | Item | Blocks |
 |---|---|---|
@@ -563,6 +575,7 @@ register that owns them — that section recorded them, this one is where they a
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
 | **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive, removing one after publication is not, and 0.1.0 is unpublished. D44 routes the three the core index exports today to `/fix` for removal, precisely so this is decided against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
 | **U8** | **Nothing turns `sources.*.yml` into a `SourceMap`** (`30-slices.md` gap 1). §10.1 names `/node` as raising `config.invalidEntry` "when reading YAML", but §9 exports no reader — `convertYamlToJson(from, to)` converts files, not configuration, and `10-design.md` §2 gives `/node` only "the YAML→JSON conversion the CLI wraps". A reader's return type, its error surface, and whether it validates the parsed map against §6 before returning are all undetermined. J3.1 takes a `SourceMap` already in memory and J6.4 puts sources into YAML, so something has to bridge them; until that signature is designed, §10.1's `/node`-reading-YAML clause names a raiser that does not exist. | J6 |
+| **U9** | **Whether a `cache: false` request participates in single-flight.** §3 declares `JsonRequest.cache?: false` as a caller-local opt-out from the cache. `10-design.md` §5 keys the in-flight map on the cache key and never says whether a caller that opted out of the cache still joins one, or may be joined by one. I17 as written admits no exception — "concurrent misses for one key issue one transport" — while `src/core/pipeline.ts` takes the opt-out path before it ever reaches the in-flight map, so an opt-out read concurrent with a normal read of the same id issues two transports. One of the two is wrong and the design settles neither. The flag is exercised by no test in the tree, which is why the divergence has never been observed. | — |
 
 **U1 is resolved.** `useJson(id)` reaches its loader through a `JsonProvider` context, added to
 §9 as `/react`'s third export and constrained by I39 (`90-decisions.md` D53, which names the
