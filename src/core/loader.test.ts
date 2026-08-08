@@ -285,3 +285,50 @@ describe('dispose / stats / invalidate — trivial in J1 (no cache yet)', () => 
     expect(loader.stats()).toEqual({ entries: 0, hits: 0, misses: 0 });
   });
 });
+
+describe('I38: the log port receives exactly one JsonEvent per completed load', () => {
+  it('loadById on an inline entry emits one event carrying id, reason, and meta', async () => {
+    const events: unknown[] = [];
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: 1 } } as never }), {
+      log: (event) => events.push(event),
+    });
+    const result = await loader.loadById<{ x: number }>('a');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ id: 'a', reason: result.reason, meta: result.meta });
+  });
+
+  it('§4: an inline load with no validator reports phase unwrap', async () => {
+    const events: Array<{ phase: string }> = [];
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: 1 } } as never }), {
+      log: (event) => events.push(event),
+    });
+    await loader.loadById('a');
+    expect(events).toMatchObject([{ phase: 'unwrap' }]);
+  });
+
+  it('§4: a validated load reports phase validate, wherever the validator ran', async () => {
+    const events: Array<{ phase: string }> = [];
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: 1 } } as never }), {
+      log: (event) => events.push(event),
+    });
+    await loader.load({ id: 'a', validate: (v) => ({ ok: true, value: v }) });
+    expect(events).toMatchObject([{ phase: 'validate' }]);
+  });
+
+  it('§4: an id absent from the map reports phase resolve with reason json.unresolved', async () => {
+    const events: Array<{ phase: string; reason: string }> = [];
+    const loader = createJsonLoader(inlineMap({}), { log: (event) => events.push(event) });
+    await loader.load({ id: 'missing' });
+    expect(events).toMatchObject([{ phase: 'resolve', reason: 'json.unresolved' }]);
+  });
+
+  it('a log port that throws changes neither the result nor the cache, and load() still resolves (I2)', async () => {
+    const loader = createJsonLoader(inlineMap({ a: { at: 'build', inline: { x: 1 } } as never }), {
+      log: () => {
+        throw new Error('log port exploded');
+      },
+    });
+    const result = await loader.loadById<{ x: number }>('a');
+    expect(result.ok).toBe(true);
+  });
+});

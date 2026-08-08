@@ -42,8 +42,17 @@ export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): Jso
 
   async function load<T>(request: JsonRequest<T>): Promise<JsonResult<T>> {
     const declared = normalized.get(request.id);
-    const result = await runPipeline(request, declared, ports, cache, inFlight);
+    const { result, phase } = await runPipeline(request, declared, ports, cache, inFlight);
     maybeRegisterWatch(request.id, request, result);
+    // I38: fire-and-forget — a throwing log port changes neither the result nor the cache, and
+    // never makes load() throw (I2).
+    if (ports.log) {
+      try {
+        ports.log({ id: result.meta.id, phase, reason: result.reason, meta: result.meta });
+      } catch {
+        /* delivery is fire-and-forget */
+      }
+    }
     return result;
   }
 

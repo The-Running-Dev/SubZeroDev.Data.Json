@@ -263,3 +263,21 @@ describe('J11.7: invariant-removal coverage', () => {
     expect(r2.ok && r2.meta.cached).toBe(false);
   });
 });
+
+describe('I38: a joined caller reports its own last phase, not the leader\'s', () => {
+  it('the leader (no validator) reports unwrap; the joiner (supplied a validator) reports validate', async () => {
+    const events: Array<{ phase: string }> = [];
+    const table = controllableFs({ '/x.json': { text: '{"v":1}', mtimeMs: 1 } });
+    const loader = createJsonLoader(fileMap('/x.json'), { fs: table.fs, log: (e) => events.push(e) });
+
+    const p1 = loader.loadById('a');
+    await flush();
+    const p2 = loader.load({ id: 'a', validate: (v) => ({ ok: true, value: v }) });
+    await flush();
+
+    table.releaseNext('{"v":1}');
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1.ok && r2.ok).toBe(true);
+    expect(events).toMatchObject([{ phase: 'unwrap' }, { phase: 'validate' }]);
+  });
+});
