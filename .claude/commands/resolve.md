@@ -5,7 +5,9 @@ argument-hint: [pr number]
 
 Work the review comments on pull request **$1** — the current branch's PR if no number is given.
 
-**Resolving a thread is an external write, and it is not covered by the issue carve-out** (`AGENTS.md`, *Tracking work* — that covers opening issues, not commenting on or resolving anyone else's thread). Read this repository's own instruction file first: some delegate resolution after a validated fix so a thread cannot block auto-merge, some forbid replying or resolving without authorization. **Follow what it says. Where it is silent, ask before resolving anything** — subject to the batch below, which still asks once, just not once per action.
+**`/pr` runs this as its final phase**, once review has landed on the pull request it took to merge-ready. This file owns the procedure — the query, the classes, the order of operations; `/pr` owns only where the sequence sits. Invoked on its own, it does exactly the same thing against any pull request named.
+
+**Resolving a thread is an external write, but this repository delegates it** (`AGENTS.md`, *Git and delivery*): once a thread is classified `Defect` and the fix satisfying it is pushed, resolve it without asking first. This delegation covers execution only — classification itself still runs on the merit of the claim, and `Ambiguous` threads are still brought individually. This delegation is unavailable in a repository this account does not own; there, ask before resolving anything, per that same section.
 
 ## Find every thread
 
@@ -66,15 +68,14 @@ Act on the four clear classes without further prompting. **Bring only the ambigu
 
 This sequence is the safeguard. Do not reorder it.
 
-1. **Fix** the defects. Nothing else — no adjacent tidying, no refactors. Fixing code is not itself an external write, so this does not wait on the batch.
-2. **Request the batch.** Now that classification is complete, ask once: name every `PRRT_` id you intend to resolve — the `Defect`-class threads the fix above addresses — and state that the single yes covers pushing, updating the pull request, and resolving exactly those ids (`AGENTS.md`, *Git and delivery* — the resolution batch, **I3**, **I4**). In a repository I do not own, the batch is unavailable (**I9**): ask for push, PR update, and each resolution individually instead, per that same section.
-3. **Push.** A fix that is not pushed does not exist as far as the reviewer or CI is concerned.
-4. **Confirm the checks are green on the new head SHA — not the old one — by calling `pwsh -File tools/Wait-PullRequestCheck.ps1 -PullRequest $1 -HeadSha <pushed SHA>`.** Resolution proceeds only when its `WaitResult.State` is `Passed`. Any other state — `Failed`, or `NotEvaluated` for any reason including `HeadMoved` or `NoChecksConfigured` — means stop and report; do not resolve anything.
-5. **Re-query the threads** (§ Find every thread, fully paginated again) before resolving anything. **Only then resolve**, and only the ids named in the granted batch. A thread that appears in this re-query but was not in the batch — including a fresh bot review posted while the wait was running — is not covered by the earlier yes and needs its own ask, per the batch's own limit (**I4**).
+1. **Fix** the defects. Nothing else — no adjacent tidying, no refactors.
+2. **Push.** A fix that is not pushed does not exist as far as the reviewer or CI is concerned. No ask required — this repository delegates it (`AGENTS.md`, *Git and delivery*).
+3. **Confirm the checks are green on the new head SHA — not the old one — by calling `pwsh -File tools/Wait-PullRequestCheck.ps1 -PullRequest $1 -HeadSha <pushed SHA>`.** Resolution proceeds only when its `WaitResult.State` is `Passed`. Any other state — `Failed`, or `NotEvaluated` for any reason including `HeadMoved` or `NoChecksConfigured` — means stop and report; do not resolve anything.
+4. **Re-query the threads** (§ Find every thread, fully paginated again) before resolving anything. **Only then resolve** every `Defect`-class thread the pushed fix addresses. A thread that appears in this re-query but was not part of that classification — including a fresh bot review posted while the wait was running — needs its own classification pass first, not an immediate resolve.
 
 **Never resolve a thread you did not address.** Resolving is how a blocking finding becomes invisible — it is the one action here that cannot be noticed afterwards. Leave anything ambiguous, contested, or merely replied-to **open**, and say so in your report.
 
-Where the repository requires authorization to resolve: fix and push, then report which threads are now satisfied, and stop.
+In a repository this account does not own, the delegation above is unavailable: fix and push, then ask before resolving anything, per `AGENTS.md`, *Git and delivery*.
 
 ## Report
 
@@ -82,11 +83,10 @@ Where the repository requires authorization to resolve: fix and push, then repor
 - The classification table
 - What was fixed, and the pushed SHA
 - The `WaitResult` for that SHA — including anything in `.NotRun`, per `/verify`
-- The batch requested, and what it was granted to cover
 - Threads resolved, and threads deliberately left open with the reason
 - Issues filed for out-of-scope findings, with numbers
 
-**Then ask.** Anything left open is unresolved work, and *a reconciliation ends in a decision, not a report* (`AGENTS.md`, *Working with me*). If every thread was clear-cut and nothing remains, say so and stop — do not manufacture a question.
+**Then ask, but only about what's still open.** Anything left `Ambiguous` is unresolved work, and *a reconciliation ends in a decision, not a report* (`AGENTS.md`, *Working with me*). If every thread was clear-cut and resolved, say so and stop — do not manufacture a question.
 
 ## Never
 
@@ -94,4 +94,4 @@ Where the repository requires authorization to resolve: fix and push, then repor
 - Resolve a thread on someone else's PR without being asked.
 - Merge. That is `/pr`'s territory and this repository's convention, not this command's.
 - Treat an outdated thread as resolved. `isOutdated` means the line moved, not that the point was answered.
-- Resolve a thread that was not named in the granted batch, even if it looks like a clear win. It needs its own ask.
+- Resolve a thread that was not classified `Defect` and addressed by the pushed fix, even if it looks like a clear win. It needs its own classification pass.
