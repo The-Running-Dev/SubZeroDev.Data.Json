@@ -5,9 +5,24 @@ this file explains why they have the shape they do and settles the things the ty
 do not say. Decisions and their reversal costs are in `90-decisions.md`.
 
 Where this document decides something the contract does not yet state, the decision is
-logged and named here as needing to land in `20-contract.md`. Nothing here contradicts the
-contract, and no capability it names is missing from it: §7's Q1, Q2 and Q3 have all landed,
-and Q4 is a question about an external repository rather than a gap in this one.
+logged and named here as needing to land in `20-contract.md`. No capability this file names is
+missing from the contract: §7's Q1, Q2 and Q3 have all landed, and Q4 is a question about an
+external repository rather than a gap in this one. **One thing here does contradict the
+contract, deliberately and in one direction**: §5 narrows I17, which `20-contract.md` §12 U9
+had already recorded as knowingly false as written. The amendment is named where it arises and
+is `/contract`'s to make.
+
+The 2026-08-08 revision settles the two things `20-contract.md` §12 recorded as undetermined
+here and closes both: **U9**, whether a cache opt-out participates in single-flight (§5,
+`90-decisions.md` D61), and **U8**, which module turns a YAML source map into a `SourceMap`
+(§2, D62). Each needs a corresponding `20-contract.md` amendment — I17 narrowed for the first,
+a `/node` export declared for the second — and neither is made here. The same pass carries in
+four things the contract had determined more precisely than this file said: the half-open ttl
+boundary (§3.1), a hit's stored `location` (§1.3), the size bound as a boundary failure of its
+own (§4.1), and the full port requirement at construction (§4.1). U7 is *not* reopened: it
+reads like a gap in §2 but D44 routed it to `/contract`, to be answered against J9.1's stated
+requirement rather than against whatever a slice exported, and no new evidence has arrived.
+§2 states the surface rule that decision rests on; the signatures stay `/contract`'s.
 
 ## 1. Data model
 
@@ -62,7 +77,7 @@ them are the design decisions most expensive to change later.
 | Field | Derived from |
 |---|---|
 | `id` | The request |
-| `provider`, `location` | The normalized source. `location` is `''` when nothing resolved and for an `inline` source; `20-contract.md` §1 owns which is which |
+| `provider`, `location` | The normalized source. `location` is `''` when nothing resolved and for an `inline` source; `20-contract.md` §1 owns which is which. On a cache hit, the entry's stored location — the bytes came from there when they were read |
 | `bytes` | UTF-8 byte length of the body as received. `0` for `inline`. On a cache hit, the stored value — the payload was that size when it was read |
 | `digest` | SHA-256 over the canonical serialization of the **post-unwrap, pre-validation** value. `null` unless requested |
 | `cached` | Whether the value came from the cache line |
@@ -83,6 +98,12 @@ content-pack primitive the GameEngine needs from it (`00-brief.md` §5.7).
 **A cache hit reports `attempts: 0`**, on the same reasoning as `inline`: no transport
 occurred. `cached: true` already carries "this value was read earlier". `20-contract.md` I11
 states this.
+
+`bytes` and `location` on a hit are the entry's stored values rather than anything re-derived
+on the call, for the same reason (`20-contract.md` I12). Both are facts about a read that
+already happened, and there is nothing on a hit to derive them from — no body was received to
+measure and no request was issued to be redirected. A hit that recomputed them would have to
+invent them.
 
 ### 1.4 What the cache line holds
 
@@ -120,7 +141,7 @@ leaf's in-degree from siblings is zero, both checkable mechanically.
 | Module | Owns | Depends on | Exposes |
 |---|---|---|---|
 | **core** | The pipeline, the source union, the result and reason vocabulary, the cache, canonical serialization, the digest, the port interfaces | Nothing. No module, no global | `load`, the loader factory, source normalization, and the types everything else is written against |
-| **node** | The Node filesystem port, the YAML→JSON conversion the CLI wraps, the GET-only HTTP mount, the response envelope | core, the Node runtime, a YAML parser (§7 Q3) | A filesystem port, a composed port set, a router, the envelope and its producer |
+| **node** | The Node filesystem port, the YAML→JSON conversion the CLI wraps, **reading a source map from YAML**, the GET-only HTTP mount, the response envelope | core, the Node runtime, a YAML parser (§7 Q3) | A filesystem port, a composed port set, a source-map reader, a router, the envelope and its producer |
 | **react** | The hook and boundary bindings, mount and unmount lifecycle, and the context a call site reaches its loader through | core, React as an optional peer | `JsonProvider`, `useJson`, `JsonBoundary` |
 | **zod** | The adapter from a zod schema to the core's validator seam | core, zod as an optional peer | A validator factory |
 | **build** | Build-time resolution, artifact and lockfile emission, the public/server gate | core, the Node runtime | Prefetch, and the bundle assertion |
@@ -130,6 +151,36 @@ writes with the Node runtime directly. That keeps the filesystem port read-only 
 is read-only, and a write member on the port would be the seam through which that stops being
 true (`90-decisions.md` D19). A consumer that wants Node's filesystem port composes it from
 `/node` and passes it in; the two modules meet in the consumer, not in the graph.
+
+**`/node` owns the step from a YAML source map to a `SourceMap`** (`90-decisions.md` D62). It
+is the module that already carries a YAML parser and a filesystem, and configuration is read
+in exactly two places — a Node server's composition root and a build — both of which are Node.
+The browser never reads YAML at all: it receives its map as `/build`'s prefetch output, already
+a value (I33). So the reader goes where the parser already is, and `/build` reaches it the same
+way it reaches the filesystem port — through the composition root, never through the graph. The
+star is untouched.
+
+**The shape check that reader applies is the core's, not a second copy.** Every rule a source
+map must satisfy — `at` present, `cache` required on http and file entries and forbidden on
+inline, one of `url`/`path`/`inline`, `version: 1` — is already enforced where a loader is
+constructed, and a reader with its own copy is two implementations of one rule with nothing
+saying which is authoritative. Reading is `/node`'s; deciding what a valid entry is stays the
+core's. That is also what makes `20-contract.md` §10.1's existing "`/node` when reading YAML"
+clause true rather than a raiser that does not exist — the code path is `/node`'s, the
+judgement behind the error is the core's.
+
+This costs the core no public surface. A leaf reaching relatively into `src/core/` is what I37
+permits and the star graph is built on, so the shared check is reached the way `/build` already
+reaches canonical serialization — internally. The narrow-surface rule above and the reader
+decision here do not pull against each other.
+
+**The core's public surface is deliberately narrower than what the core owns.** It owns
+canonical serialization and the digest; it exposes neither. That gap is not an oversight, it is
+the default direction: adding an export later is additive, and removing one after publication
+is not — and 0.1.0 is now published, so the asymmetry has teeth it did not have when D44 first
+argued it. Canonical serialization becomes public when J9.1 states what the GameEngine actually
+needs to import, and `20-contract.md` §12 U7 is where that lands. This section fixes the rule;
+it does not pick the functions.
 
 **Isomorphism is a boundary property, and it is proven rather than asserted.** The core
 reaches for no filesystem, no fetch, no window, no process, no wall clock, no randomness.
@@ -159,8 +210,15 @@ The runtime path, and the one every consumer sees.
    carries its own source. No source, or a malformed one, ends here with `json.unresolved`.
 2. **Cache lookup.** Keyed by id, checked against the entry's declared source (§1.1), then
    against the policy: `manual` always hits until invalidated; `ttl` hits while the clock says the
-   entry is inside its window; `mtime` hits while `(path, mtimeMs, size)` is unchanged. A hit
-   returns immediately and skips to step 8.
+   entry is inside its window, which is **half-open** — an entry exactly at `ttlMs` has expired,
+   and an entry stored with no clock is never a hit; `mtime` hits while `(path, mtimeMs, size)` is
+   unchanged. A hit returns immediately and skips to step 8. `20-contract.md` I40 states all
+   three conditions.
+
+   A request carrying `cache: false`, or its own ad-hoc `source`, **skips this step and step 3
+   together** and goes straight to transport. Both are reads with no cache key, and a read with
+   no cache key has nothing to look up, nothing to store, and nothing to join through (§5,
+   `90-decisions.md` D61).
 3. **Join or start.** A miss checks the in-flight map. A load already running for this key is
    **joined**, not duplicated (§5). Otherwise a new one starts and registers itself.
 4. **Transport.** `http` goes through the fetch port under a per-attempt timeout, with retries
@@ -234,11 +292,12 @@ second loud.
 | Filesystem port | Path does not exist | Port error | No retry — it will not appear | `json.notFound` | None |
 | Filesystem port | Permission or IO error | Port error | No retry | `json.transport` | None |
 | Filesystem port | `stat` fails under an `mtime` policy | Port error | Treats it as a miss and reads; the read's own outcome is authoritative | Whatever the read produced | Entry left as it was |
+| Size bound | Body exceeds a declared `maxBytes` | A declared `Content-Length` where one is present, and the decoded length always | No retry — asking again returns the same oversized body | `json.tooLarge`. Where a declared `Content-Length` is what refused it, `meta.bytes` carries that declared length, since no body was received to measure | None. Nothing is written |
 | Parse | Body is not JSON, or is empty | Parse throws | No retry | `json.parse` | None |
 | Unwrap | Declared envelope absent, or a caller-supplied unwrap throws | Shape check, or a catch | No retry | `json.schema` | None |
 | Validate | Validator returns not-ok, or throws | Return value, or a catch | No retry | `json.schema`, `validated` false | Cache entry stands — the value is fine, this caller's schema is not |
 | Resolve | Id absent from the map, or a malformed request | Lookup | Nothing to attempt | `json.unresolved` | None |
-| Construction | A `ttl` policy with no clock, `jitter` with no rng | Construction-time check | Throws. Never a silent downgrade | An exception at loader construction | No loader exists |
+| Construction | A supplied entry needs a port that was not passed: `fetch` for an http entry, `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for a timeout or a non-zero delay. One clause is map-independent — a supplied `fetch` requires a `schedule` alongside it, because an ad-hoc request can name an http URL the map never mentions | Construction-time check, scoped to the entries in the map supplied | Throws. Never a silent downgrade | An exception at loader construction, naming the entry and the port | No loader exists |
 | Build | Any `at: build` source fails | Aggregate of §3.2 | Fails the build, writes nothing | Every failed id, named | Previous build output, untouched |
 | Build gate | A server-file entry reached the public output | Scan of the built output | Fails the build | The offending id and file | Build output present but rejected |
 
@@ -298,6 +357,27 @@ first starts the load, the rest join its promise. All three get the same frozen 
 safe precisely because it is frozen (`90-decisions.md` D15, D21). Validation still runs per
 caller, so joining does not force callers to share a schema (§1.4).
 
+**What participates in that join is exactly what participates in the cache** (`90-decisions.md`
+D61). The in-flight map is keyed by cache key, so a read that has no cache key has nothing to
+join through: an ad-hoc `JsonRequest.source` (§1.1) and a `cache: false` request both go
+straight to transport, neither joining a load in flight nor being joined by one. Two concurrent
+opt-out reads of one id therefore issue two transports, and that is the declared meaning rather
+than a leak.
+
+The reason is that **the in-flight map is a cache with a lifetime of one load.** A caller that
+joins receives a value fetched in response to somebody else's earlier call, which is precisely
+what a caller opting out of the cache is asking not to receive; "fresh, unless another call
+beat you to it by a few milliseconds" is not a property anyone can reason about. Making
+participation follow cache-eligibility also keeps one caller's flag out of another caller's
+behaviour: were an opt-out read allowed to initiate a load that a normal read joined, the
+question of whether that entry gets stored would depend on which of the two arrived first. A
+call site's behaviour must not turn on an unrelated concurrent call, for the same reason §1.4
+does not let it turn on a cache policy it cannot see.
+
+This narrows `20-contract.md` I17, which as written admits no exception: the guarantee is over
+concurrent **cache-eligible** misses. That amendment is `/contract`'s, and the flag needs the
+first test it has ever had.
+
 **Invalidation during a load.** Each cache key carries a generation counter, incremented by
 `invalidate`. A load stamps the generation it started under and compares before storing; a
 mismatch means the result is returned to its callers but not written. Without this, invalidate
@@ -332,7 +412,7 @@ recorded in the open register rather than defended here.
 
 ## 6. Alternatives considered
 
-Five choices where a different option was genuinely viable. The earlier five — package shape,
+Seven choices where a different option was genuinely viable. The earlier five — package shape,
 `at:` with no default, the two-file config split, result-not-throw, and the deliberate
 serializer duplication — are settled in `90-decisions.md` D2, D3, D6, D8, and D9 and are not
 reopened.
@@ -371,6 +451,30 @@ of the three conventions this package exists to retire.
 failure. Rejected: fail fast on the first, which is the obvious implementation and returns
 sooner — but a boot or a build that stops at the first of four misconfigured sources costs four
 round trips of a human's time to discover what one round trip could have said.
+
+**Whether a cache opt-out participates in single-flight.** Chosen: it does not — participation
+in the in-flight join is exactly participation in the cache, so an opt-out read and an ad-hoc
+source are governed by one rule rather than two exceptions. Rejected: letting an opt-out read
+join and be joined while never reading or writing an entry, which is the reading that keeps the
+single-transport guarantee unqualified and saves a round trip — but it forces a second choice
+the first reading never has to make, namely whether an entry is committed when the caller that
+*initiated* the load had opted out, and every answer to that makes one call site's caching
+depend on an unrelated concurrent call's flag. Also rejected: deleting `cache: false` outright,
+which removes the contradiction rather than deciding it and is the cheapest edit by some way —
+but 0.1.0 is published, so the removal is now a breaking change rather than the free one the
+same asymmetry argument assumed in D44, and `refetch` is the consumer that will want it.
+
+**Which module turns a YAML source map into a `SourceMap`.** Chosen: `/node`, applying the
+core's own shape check rather than a second copy of it. Rejected: no reader at all, with each
+consumer parsing YAML and handing the result to `createJsonLoader`, which already validates it
+— genuinely cheaper, adds no public surface to a published package, and stays inside the
+brief's §6 list for `/node`; but it leaves three consumers each casting `unknown` to
+`SourceMap` by hand, it defers every configuration error in an `at: runtime` entry past a build
+that never constructs a loader over those entries (I8), and it requires *removing* a behaviour
+`20-contract.md` §10.1 already names. Also rejected: `/build` owning the reader, which puts it
+where the build needs it with no wiring — but duplicates the YAML parser into a second leaf and
+leaves the server consumer, which reads `sources.server.yml` and must not depend on `/build`,
+with no reader at all.
 
 ## 7. Open questions
 

@@ -1630,6 +1630,90 @@ argument again.
 
 ---
 
+## D61 — A cache opt-out neither joins nor is joined; I17 narrows to cache-eligible misses (2026-08-08)
+
+**Context.** `20-contract.md` §12 U9. `JsonRequest.cache?: false` is declared in §3 as a
+caller-local opt-out and implemented in `src/core/pipeline.ts`, where both the http and the
+file path take the opt-out branch before ever reaching the in-flight map. I17 says "concurrent
+misses for one key issue one transport" and admits no exception, so an opt-out read concurrent
+with a normal read of one id issues two transports where the contract says one. One of the two
+is wrong. `10-design.md` §5 keyed the in-flight map on the cache key and never said whether a
+caller outside the cache has one, so the design settled neither side. The flag is exercised by
+no test anywhere in `src/`, which is how the divergence survived J11 and every pass since.
+
+**Chosen.** Participation in the in-flight join is exactly participation in the cache. A
+`cache: false` request, like an ad-hoc `JsonRequest.source` under I16, has no cache key and
+therefore neither joins a load in flight nor may be joined by one. `10-design.md` §3.1 step 2
+and §5 now state this; the code already does it, so the implementation is ratified rather than
+changed.
+
+Two arguments carry it. The in-flight map **is** a cache with a lifetime of one load — a joiner
+receives a value fetched in response to an earlier call, which is the one thing a caller opting
+out of the cache is asking not to receive, and "fresh unless something beat you to it by a few
+milliseconds" is not a property a call site can reason about. And tying participation to
+cache-eligibility keeps one caller's flag out of another caller's behaviour: were an opt-out
+read allowed to initiate a load a normal read joined, whether that entry is committed would
+depend on which of the two arrived first, which is the coupling `10-design.md` §1.4 and D21
+already refuse for cache policy.
+
+**Requires a contract amendment, not made here.** I17 is over concurrent **cache-eligible**
+misses. `/contract`'s.
+
+**Rejected.** Letting an opt-out read join and be joined while never reading or writing an
+entry — the reading that keeps I17 unqualified and saves a round trip, and the more natural
+one if you read `cache: false` as "do not persist" rather than "do not share". It loses on the
+commit question above: it forces a second decision the chosen reading never has to make, and
+every answer to it is order-dependent. Also rejected: deleting `cache: false` from v1, which
+removes the contradiction instead of deciding it and is by some way the smallest edit — but
+0.1.0 is published, so the removal is a breaking change rather than the free one D44's
+asymmetry argument assumed when it was not, and `useJson`'s `refetch` is the consumer that will
+want the flag (see `## Open`).
+
+**Reversibility:** cheap now, expensive later. Widening participation afterwards changes how
+many transports a published loader issues under concurrency, which is observable.
+
+---
+
+## D62 — `/node` owns the YAML source-map reader, applying the core's shape check (2026-08-08)
+
+**Context.** `20-contract.md` §12 U8. §10.1 names `/node` as raising `config.invalidEntry`
+"when reading YAML", but §9 exports no reader: `convertYamlToJson(from, to)` converts data
+files, not configuration, and `10-design.md` §2 gave `/node` only "the YAML→JSON conversion the
+CLI wraps". J3.1 takes a `SourceMap` already in memory and J6.4 puts sources into YAML, so
+something has to bridge them, and the contract named a raiser that does not exist.
+
+**Chosen.** `/node` owns reading a source map from YAML. It already carries the parser (D41)
+and a filesystem, and configuration is read in exactly two places — a Node server's composition
+root and a build — both of which are Node. The browser never reads YAML: it receives its map as
+`/build`'s prefetch output, already a value (I33).
+
+The shape check the reader applies is **the core's**, not a second copy — the same rules
+`createJsonLoader` enforces, reached by a relative import into `src/core/`, which is what I37
+permits and costs the core no public surface. Reading is `/node`'s; deciding what a valid entry
+is stays the core's. `/build` reaches the reader through the composition root the way it already
+reaches the filesystem port, so I37 and D19 are untouched and the star graph does not gain an
+edge.
+
+**Requires a contract amendment, not made here.** §9 gains a `/node` export; its return type,
+whether it is sync or async, and its error surface are `/contract`'s, and U8 is where they land.
+
+**Rejected.** No reader at all, with each consumer parsing YAML itself and handing the result to
+`createJsonLoader`, which already validates it — cheaper, adds no public surface to a published
+package, and stays inside `00-brief.md` §6's list for `/node`, which does not mention a reader.
+It loses on three counts: three consumers each casting `unknown` to `SourceMap` by hand; every
+configuration error in an `at: runtime` entry deferred past a build that never constructs a
+loader over those entries (I8, D43); and it requires *removing* a behaviour §10.1 already
+contracts, where the contract outranks this document. Also rejected: `/build` owning the reader,
+which puts it where the build needs it with no wiring, but duplicates the parser into a second
+leaf and leaves the server consumer — which reads `sources.server.yml` and must not depend on
+`/build` — with no reader at all.
+
+**Reversibility:** cheap in the additive direction it takes. Expensive to reverse once
+published, which is the asymmetry D44 relies on and the reason the alternative was weighed
+rather than dismissed.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -1647,16 +1731,28 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **A `cache: false` request neither joins nor is joined by an in-flight load, and I17 says
-  otherwise.** `20-contract.md` §12 U9. `JsonRequest.cache?: false` is declared in §3 and
-  implemented in `src/core/pipeline.ts` — both the http and the file path take the opt-out
-  branch before reaching the in-flight map — so an opt-out read concurrent with a normal read
-  of the same id issues two transports, where I17 says concurrent misses for one key issue
-  one. The flag is exercised by no test anywhere in `src/`, which is how the divergence
-  survived J11 and every pass since. `10-design.md` settles neither side: §5 keys the in-flight
-  map on the cache key and never says whether a caller outside the cache has one. Needs a
-  decision on which of the two is wrong before it needs code; either way it also needs the
-  first test the flag has ever had.
+- **I17 still says concurrent misses for one key issue one transport, and D61 decided
+  otherwise.** `20-contract.md` §12 U9, now settled by D61 and `10-design.md` §5: a
+  `cache: false` request has no cache key and so neither joins an in-flight load nor may be
+  joined by one, exactly as I16 already treats an ad-hoc source. The implementation in
+  `src/core/pipeline.ts` already does this, so no pipeline change is owed. Two things are:
+  I17 must narrow to concurrent **cache-eligible** misses, which is `/contract`'s; and the flag
+  needs the first test it has ever had, covering both directions — an opt-out read concurrent
+  with a normal read issues two transports, and neither observes the other. Until the test
+  exists the decision is enforced by nothing, which is how the divergence survived J11 in the
+  first place.
+
+- **`useJson().refetch()` can never return a fresh value against a `manual` cache policy.**
+  `src/react/use-json.ts:75` implements `refetch` as another `loader.loadById(id)`, and
+  `loadById` synthesizes a request from the map entry with no cache opt-out. Under a `manual`
+  policy the lookup hits every time, so `refetch()` re-renders with the cached value and issues
+  no transport — a no-op by construction, for the one call the API offers a component that
+  wants current data. Under `ttl` it is a no-op inside the window, which is at least
+  time-bounded. `20-contract.md` §9 declares `refetch(): Promise<void>` and says nothing about
+  what it refetches, and `10-design.md` names no semantics for it, so this is undetermined
+  rather than a contradiction. `cache: false` (D61) is the mechanism that would fix it, and it
+  is the flag's first real consumer — which is the concrete argument that kept D61 from
+  deleting it. Needs a decision on what `refetch` means before it needs code.
 
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this section. O26 and
