@@ -1786,16 +1786,6 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **`JsonRequest.cache: false` is exercised by no test anywhere in the tree.** D61 settled what
-  the flag means and the `/contract` pass after it landed the amendment — I17 now narrows to
-  concurrent **cache-eligible** misses, §3 defines the term, and I40 records that a
-  non-eligible read performs no lookup at all. `src/core/pipeline.ts` already behaves this way,
-  so no pipeline change is owed. What is owed is the test, covering both directions: an opt-out
-  read concurrent with a normal read of one id issues two transports, and neither observes the
-  other. Until it exists the decision is enforced by nothing, which is how the divergence
-  survived J11 in the first place — and under `00-brief.md` §7.1 an invariant whose test would
-  still pass with the invariant removed is not a contracted invariant.
-
 - **Nothing implements `/node`'s source-map reader, which `20-contract.md` §9 now declares.**
   D62 and D63 close U8: `parseSourceMap(text)` and `readSourceMap(path)` are contracted, I42
   constrains them to the core's own entry check rather than a second copy, and
