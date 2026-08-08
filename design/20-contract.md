@@ -19,6 +19,9 @@ I37 as D51, because `10-design.md` §2 names a two-part guard on the module grap
 core half had ever been written down, and I38 as D52, because §3.1 step 9 emits an event that
 nothing here obliged. D52 also settles §4's `phase` mapping, which the design does not
 determine — the one thing in this pass that is a design decision rather than a transcription.
+A later pass the same day answers §12 U1 as D53: `/react` gains a `JsonProvider` context,
+I39 constrains it, and `config.missingProvider` joins §10's closed code union. That one is a
+design decision outright — the design named no mechanism for it at all.
 
 ## 1. Result
 
@@ -400,6 +403,7 @@ I37 and I38 in the 2026-08-08 re-derivation.
 | **I36** | The post-unwrap value is checked against I35's domain on every load — before it is frozen, before it is cached, and independently of `digest`. A value outside the domain yields `json.schema` and writes nothing to the cache. No cache entry ever holds an out-of-domain value, so I32's memoized digest never throws, and `digest` never changes a result's `ok`. | core |
 | **I37** | No leaf module imports another leaf. A specifier in `src/node/`, `src/build/`, `src/zod/`, or `src/react/` is relative within its own directory, a relative reach into `src/core/`, or a bare specifier for a dependency that module declares — never a reach into a sibling leaf, across static imports, dynamic `import()`, and re-exports. `/build` in particular never imports `/node`, which is what keeps `FileSystemPort` read-only (D19). I1 is the core's out-degree and this is each leaf's in-degree from its siblings; together they are the whole of `10-design.md` §2's star graph, and neither half rests on review (D50, D51). Test files are outside the guard: a fixture is not a shipped edge. | node, build, zod, react |
 | **I38** | A supplied `log` port receives exactly one `JsonEvent` per `load` call that completes — including each id resolved through `loadById`, `loadMany`, `preload`, and `prefetch`, and including a caller that joined an in-flight load rather than starting one. The event is emitted after the result is assembled and before `load` resolves, and carries that result's own `id`, `reason`, and `meta`, with `phase` as §4 defines it. Delivery is fire-and-forget: a `log` port that throws changes neither the result nor the cache and never makes `load` throw (I2). No other member emits. | core |
+| **I39** | `useJson` and `JsonBoundary` read their loader from the nearest `JsonProvider` above them and from nowhere else — no module-level default, no ambient singleton, no fallback loader. Rendered with none above them, each throws `JsonError('config.missingProvider')`. That throw does not weaken I2: no loader was reached, so `load` was never called. `JsonProvider` accepts a loader and never constructs one, and never calls `dispose()` on unmount — disposal stays with whoever created it (D31). Two loaders coexist in one tree as nested providers, and the nearest wins, which is what keeps §5's per-loader cache boundary true under React. | react |
 
 ## 9. Subpath Exports
 
@@ -418,6 +422,26 @@ export type JsonRouteHandler = (
 export function jsonRouter(loader: JsonLoader, ids: readonly SourceId[]): JsonRouteHandler; // GET only
 export function envelope<T>(data: T): { readonly success: true; readonly data: T };
 export function convertYamlToJson(from: string, to: string): Promise<number>;    // CLI core
+
+// @subzerodev/data-json/react
+export interface JsonProviderProps {
+  readonly loader: JsonLoader;
+  readonly children: ReactNode;
+}
+
+/** Supplies the loader read by every hook and boundary below it. Accepts one; never constructs one. */
+export function JsonProvider(props: JsonProviderProps): ReactElement;
+
+export function useJson<T>(id: SourceId): JsonResult<T> & {
+  readonly loading: boolean;
+  refetch(): Promise<void>;
+};
+
+export function JsonBoundary(props: {
+  readonly id: SourceId;
+  readonly fallback?: ReactNode;
+  readonly children: ReactNode;
+}): ReactElement;
 
 // @subzerodev/data-json/zod
 export function zodValidator<T>(schema: ZodType<T>): Validator<T>;
@@ -443,7 +467,16 @@ and `jsonRouter` emits the failure half (I28). J2.5's round-trip test is what ke
 ends agreeing, and it covers both halves — a test written to catch a shape divergence that
 exercises only the success side is how D45's divergence survived.
 
-`@subzerodev/data-json/react` is blocked — see §12 U1.
+`JsonProvider` is how `useJson(id)` reaches a loader, and it is the whole of the answer to
+what was §12 U1 (`90-decisions.md` D53). It **accepts** a loader rather than constructing one:
+`createJsonLoader` needs the source map and the ports, and `config.missingPort`'s remedy is to
+fix the composition root, which is the consuming application's and not a component's. For the
+same reason the provider never calls `dispose()` on unmount — a component does not dispose
+what it did not create, and D31 leaves that with whoever did. Nesting providers is how two
+loaders coexist in one tree, which §5's per-loader cache requires be possible.
+
+`ReactNode` and `ReactElement` are React's own types, reached through the optional peer
+dependency; `/react` re-exports neither.
 
 ## 10. Error semantics
 
@@ -460,6 +493,7 @@ export interface JsonFailure {
 
 export type JsonErrorCode =
   | 'config.missingPort'
+  | 'config.missingProvider'
   | 'config.invalidEntry'
   | 'config.duplicateId'
   | 'preload.failed'
@@ -478,6 +512,7 @@ export class JsonError extends Error {
 | Code | Raised by | When | Retryable | Caller does |
 |---|---|---|---|---|
 | `config.missingPort` | core, at `createJsonLoader` | An entry in the supplied map needs a port that was not passed (I6) | No | Fix the composition root. The loader does not exist |
+| `config.missingProvider` | `/react`, at render | `useJson` or `JsonBoundary` rendered with no `JsonProvider` above it (I39) | No | Mount a `JsonProvider` at the composition root. There is no loader to read, and no default to fall back to |
 | `config.invalidEntry` | core, at `createJsonLoader`; `/node` when reading YAML | Missing `at`, missing `cache` on an http or file entry, `cache` on an inline entry, more than one of `url`/`path`/`inline`, `mtime` on a non-file entry, `retry.attempts < 1`, or `version` not `1` | No | Fix the source map. The message names the id and the field |
 | `config.duplicateId` | `/build`, across the two maps | An id declared in both the public and the server map (I23). The core does not raise this and cannot: duplicate keys within one `SourceMap` collapse before it sees them | No | Rename one. The message names the id and both files |
 | `preload.failed` | core, from `preload` | One or more ids failed to resolve (I20) | Per `failures[].reason` — see §10.2 | Refuse to boot, exit non-zero, and report every entry in `failures` |
@@ -517,18 +552,23 @@ than a protocol.
 
 ## 12. Unresolved
 
-Six items the design does not determine. Each blocks the work named; none is invented here.
+Five items the design does not determine. Each blocks the work named; none is invented here.
 U7 and U8 are `30-slices.md`'s "contract gaps this pass surfaced" 2 and 1, moved to the
 register that owns them — that section recorded them, this one is where they are answered.
 
 | | Item | Blocks |
 |---|---|---|
-| **U1** | **How `useJson(id)` reaches a `JsonLoader`.** `10-design.md` §2 gives `/react` only `useJson` and `JsonBoundary`. A context provider, or a loader parameter, is a new public interface, and the design names neither. The two signatures from the 2026-08-06 draft stand unchanged and are not implementable until this is decided. | J4 |
 | **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
 | **U5** | **A concurrency bound for eager resolution** (`90-decisions.md` O5, O17). `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map as an assumption rather than a guarantee. `loadMany` takes a caller-sized array, which that assumption does not reach. No bound is specified, so none is contracted. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
 | **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive, removing one after publication is not, and 0.1.0 is unpublished. D44 routes the three the core index exports today to `/fix` for removal, precisely so this is decided against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
 | **U8** | **Nothing turns `sources.*.yml` into a `SourceMap`** (`30-slices.md` gap 1). §10.1 names `/node` as raising `config.invalidEntry` "when reading YAML", but §9 exports no reader — `convertYamlToJson(from, to)` converts files, not configuration, and `10-design.md` §2 gives `/node` only "the YAML→JSON conversion the CLI wraps". A reader's return type, its error surface, and whether it validates the parsed map against §6 before returning are all undetermined. J3.1 takes a `SourceMap` already in memory and J6.4 puts sources into YAML, so something has to bridge them; until that signature is designed, §10.1's `/node`-reading-YAML clause names a raiser that does not exist. | J6 |
+
+**U1 is resolved.** `useJson(id)` reaches its loader through a `JsonProvider` context, added to
+§9 as `/react`'s third export and constrained by I39 (`90-decisions.md` D53, which names the
+loader-parameter and module-singleton alternatives and why each was rejected). Both signatures
+from the 2026-08-06 draft stand exactly as drafted; the answer was additive rather than a
+revision of them. J4 is unblocked, and so is J6+J7 through it. The id is retired, not reused.
 
 **U3 is resolved.** The parser is `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a `dependencies`
 entry resolved only by `/node`'s subpath (`90-decisions.md` D41, which names the alternatives

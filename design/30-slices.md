@@ -14,7 +14,7 @@ order.
 
 **Running order:** J1 → J10 → J11 → J12 → J2 → J3 → J5 → J4 → J6+J7 → J8 → J9.
 
-**J1, J10–J12 are the core. J2, J3, J5 are the environments. J4 is blocked. J6+J7 prove it.
+**J1, J10–J12 are the core. J2, J3, J5 are the environments. J4 is the fourth. J6+J7 prove it.
 J8–J9 are adoption.**
 
 J1 is first because it carries the two assumptions the whole design rests on and neither has
@@ -378,18 +378,16 @@ seam and schemas the consumer's. Do not re-export zod types through the core.
 
 ---
 
-## J4 — React *(blocked)*
+## J4 — React
 
 Delivers: A React component reads a named payload with one hook and renders loading, error,
 and success states from the reason code rather than from a message string.
 
-**Contract:** `20-contract.md` §9 (`/react`)
+**Contract:** `20-contract.md` §9 (`/react`), I39
 **Touches:** `src/react/`, `package.json` peer dependencies
 **Depends on:** J1
-**Blocked by:** §12 U1 — how `useJson(id)` reaches a `JsonLoader` is undecided. A context
-provider or a loader parameter is a new public interface and the design names neither. This
-slice cannot start, and nothing in it may invent the missing signature. See the routing note
-below.
+**Was blocked by:** §12 U1, resolved as `90-decisions.md` D53 — the loader arrives through a
+`JsonProvider` context, and both 2026-08-06 signatures stand unchanged.
 
 ### Done when
 
@@ -403,10 +401,17 @@ below.
 - [ ] **J4.4** Unmounting aborts an in-flight request; no state update after unmount.
 - [ ] **J4.5** The same call site compiles and behaves identically under either `at:` value
       (I9).
+- [ ] **J4.6** `useJson` and `JsonBoundary` rendered with no `JsonProvider` above them each
+      throw `JsonError('config.missingProvider')` — not `json.unresolved`, and not a bare
+      `Error` (I39, I24). Nested providers resolve to the nearest, and two loaders in one tree
+      serve their own caches.
+- [ ] **J4.7** Unmounting a `JsonProvider` does not dispose the loader it was given: after the
+      unmount the loader still reads, and its watchers are still registered (I39, D31).
 
-**Out of scope:** deciding U1. That is a contract amendment and belongs to `/contract`, not to
-an implementing session. Do not add a store binding on the way past — `00-brief.md` §6 mentions
-an optional store binding and `20-contract.md` §9 exports none, so it is not in this slice.
+**Out of scope:** `useJsonLoader()`. D53 rejected it for now rather than on the merits, and
+adding it needs a slice that states the requirement — not a session that finds it convenient.
+Do not add a store binding on the way past either — `00-brief.md` §6 mentions an optional store
+binding and `20-contract.md` §9 exports none, so it is not in this slice.
 
 ---
 
@@ -424,7 +429,8 @@ wrong.
 **Contract:** all of `20-contract.md`
 **Touches:** `Docs-Template`, `Portfolio`, `Portfolio/api`, `config/sources.public.yml`,
 `config/sources.server.yml`
-**Depends on:** J2, J3, J4, J5 — and therefore transitively **blocked by §12 U1** through J4
+**Depends on:** J2, J3, J4, J5. The §12 U1 block that reached this slice through J4 is lifted
+(`90-decisions.md` D53)
 
 ### Done when
 
