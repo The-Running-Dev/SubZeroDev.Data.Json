@@ -117,8 +117,20 @@ function normalizeCacheSpec(id: SourceId, spec: unknown, fileEntry: boolean): Ca
  * I6, checked against exactly the entries in the map supplied: `fetch` for an http entry,
  * `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for
  * a timeout or non-zero delay. Never a silent downgrade.
+ *
+ * D48 adds the one map-independent clause: a supplied `fetch` port requires a `schedule` port
+ * alongside it, whether or not any entry declares an http source. An ad-hoc `request.source`
+ * can name an http URL that no entry declares, and it carries §3's default timeout, so the
+ * entry-scoped check cannot see the requirement coming.
  */
 export function checkRequiredPorts(normalized: Map<SourceId, NormalizedEntry>, ports: JsonPorts): void {
+  if (ports.fetch && !ports.schedule) {
+    throw new JsonError(
+      'config.missingPort',
+      "a 'fetch' port was supplied with no 'schedule' port; an http read carries a timeout it cannot honour",
+    );
+  }
+
   for (const [id, entry] of normalized) {
     if (entry.source.kind === 'http' && !ports.fetch) {
       missingPort(id, 'fetch', 'declares an http source');

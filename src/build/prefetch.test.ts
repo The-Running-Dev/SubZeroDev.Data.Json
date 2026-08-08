@@ -55,13 +55,15 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
     expect(artifact).toBe('{"count":2}');
   });
 
-  it('J3.2 writes resolvedAt but nothing reads it back for behaviour', async () => {
+  it('J3.2 writes no time-varying field into a lock entry (D47)', async () => {
     const ports: JsonPorts = { fs: fakeFs({ '/projects.json': '{"count":2}' }) };
 
     const output = await prefetch(map, outDir, ports);
 
-    expect(typeof output.lock.sources['projects']?.resolvedAt).toBe('string');
-    expect(() => new Date(output.lock.sources['projects']!.resolvedAt)).not.toThrow();
+    // I21 is byte-identity across builds, so a lock entry carries exactly the three fields
+    // §7 declares and nothing derived from a clock. Regression guard for D47: this fails if
+    // `resolvedAt` — or any successor to it — is reintroduced.
+    expect(Object.keys(output.lock.sources['projects']!).sort()).toEqual(['bytes', 'digest', 'location']);
   });
 
   it('J3.6 never resolves an at:runtime source at build', async () => {
@@ -125,10 +127,9 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
     const secondLock = await readFile(join(outDir, 'json.lock'), 'utf8');
 
     expect(second.lock.sources['projects']?.digest).toBe(first.lock.sources['projects']?.digest);
-    // resolvedAt is excluded because it is informational only and legitimately differs run to
-    // run (§7, D19) — comparing it would defeat the point of the byte-identity check.
-    const stripResolvedAt = (text: string): string => text.replace(/"resolvedAt":"[^"]*"/, '');
-    expect(stripResolvedAt(secondLock)).toBe(stripResolvedAt(firstLock));
+    // I21, literally: the whole file, compared whole. Nothing is stripped, because after D47
+    // the lockfile carries nothing that varies between two builds over unchanged bytes.
+    expect(secondLock).toBe(firstLock);
   });
 
   it('J3.3 changed bytes produce a changed digest', async () => {

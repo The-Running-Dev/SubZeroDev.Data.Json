@@ -336,7 +336,13 @@ async function httpAttempt(
   ports: JsonPorts,
 ): Promise<HttpAttempt> {
   const controller = new AbortController();
-  const wait = timeoutMs > 0 ? ports.schedule!(timeoutMs) : null;
+  // D48: I6 demands a `schedule` port wherever `fetch` is supplied, so a declared http entry
+  // always has one. The remaining case is an ad-hoc `request.source` on a loader holding
+  // neither port — reachable because I6 checks the map, not the request. Calling through an
+  // absent port there threw straight out of `load()`, which I2 forbids outright; running that
+  // one attempt unbounded is the only outcome that keeps I2 absolute. The attempt fails on
+  // `ports.fetch!` a few lines below regardless, so nothing is actually left unbounded.
+  const wait = timeoutMs > 0 && ports.schedule ? ports.schedule(timeoutMs) : null;
   let timedOut = false;
   let settled = false;
   wait?.promise

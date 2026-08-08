@@ -43,6 +43,26 @@ export default tseslint.config(
           ],
         },
       ],
+      // D50: I1 says the core imports *no* module and that the guard, not review, is what
+      // enforces it. The builtin ban above leaves every npm specifier clean, so the claim
+      // rested on review after all. `no-restricted-imports` cannot express "bare specifier" —
+      // its gitignore-style matcher normalizes `./` away, so a negation that spares the core's
+      // own siblings also spares `js-yaml`. An esquery regex on the source string can.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportDeclaration[source.value=/^[^.]/]',
+          message: 'I1: the core imports no module — only its own relative siblings.',
+        },
+        {
+          selector: 'ImportExpression[source.value=/^[^.]/]',
+          message: 'I1: the core imports no module — only its own relative siblings.',
+        },
+        {
+          selector: ':matches(ExportNamedDeclaration, ExportAllDeclaration)[source.value=/^[^.]/]',
+          message: 'I1: the core re-exports from no module — only its own relative siblings.',
+        },
+      ],
     },
   },
 );

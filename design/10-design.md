@@ -6,7 +6,8 @@ do not say. Decisions and their reversal costs are in `90-decisions.md`.
 
 Where this document decides something the contract does not yet state, the decision is
 logged and named here as needing to land in `20-contract.md`. Nothing here contradicts the
-contract; the one capability the contract is missing is §7 Q1.
+contract, and no capability it names is missing from it: §7's Q1, Q2 and Q3 have all landed,
+and Q4 is a question about an external repository rather than a gap in this one.
 
 ## 1. Data model
 
@@ -24,9 +25,16 @@ is a configuration error the build gate rejects: an id whose meaning depends on 
 you read is exactly the ambiguity the two-file split exists to prevent (`90-decisions.md`
 D6, D12).
 
-A cache entry records the location it was resolved from. A lookup whose request resolves to
-a different location is a **miss**, not a hit — otherwise a call passing an explicit source
-under an id already in the map would serve that id's cached bytes to everyone.
+A cache entry records the **declared source** it was written under, and a lookup is a hit only
+where the source the request resolves to equals it — for an http source, url and headers both.
+It also records the location the bytes came from, but that is recorded, never compared: under
+D37 `location` is the *final* location, so a source that redirects would otherwise never match
+its own still-static declaration and would miss forever (`90-decisions.md` D42,
+`20-contract.md` I16).
+
+A call passing an explicit source under an id already in the map is handled by a separate rule,
+not by this comparison: an ad-hoc `JsonRequest.source` is neither read from, written to, nor
+joined against the cache at all.
 
 ### 1.2 Entities
 
@@ -74,7 +82,7 @@ content-pack primitive the GameEngine needs from it (`00-brief.md` §5.7).
 
 **A cache hit reports `attempts: 0`**, on the same reasoning as `inline`: no transport
 occurred. `cached: true` already carries "this value was read earlier". `20-contract.md` I11
-does not currently cover the cache-hit case and should absorb this.
+states this.
 
 ### 1.4 What the cache line holds
 
@@ -149,8 +157,8 @@ The runtime path, and the one every consumer sees.
 
 1. **Resolve.** The id is looked up in the loader's normalized source map, or the request
    carries its own source. No source, or a malformed one, ends here with `json.unresolved`.
-2. **Cache lookup.** Keyed by id, checked against the entry's recorded location, then against
-   the policy: `manual` always hits until invalidated; `ttl` hits while the clock says the
+2. **Cache lookup.** Keyed by id, checked against the entry's declared source (§1.1), then
+   against the policy: `manual` always hits until invalidated; `ttl` hits while the clock says the
    entry is inside its window; `mtime` hits while `(path, mtimeMs, size)` is unchanged. A hit
    returns immediately and skips to step 8.
 3. **Join or start.** A miss checks the in-flight map. A load already running for this key is
@@ -162,9 +170,13 @@ The runtime path, and the one every consumer sees.
    JSON ends here with `json.parse`.
 6. **Unwrap.** `'none'` — the default and the only behaviour when nothing is declared —
    returns the parsed body exactly as parsed. Nothing is ever inferred from payload shape.
-7. **Digest, freeze, store.** The digest is computed when requested. The value is frozen and
-   written to the cache, unless the generation guard says the key was invalidated while the
-   load was in flight (§5), in which case the result is returned but not stored.
+7. **Domain-check, freeze, store, digest.** The post-unwrap value is checked against the
+   canonical value domain on every load, whether or not a digest was asked for; a value outside
+   it ends here with `json.schema` and writes nothing (`20-contract.md` I36). The value is then
+   frozen and written to the cache, unless the generation guard says the key was invalidated
+   while the load was in flight (§5), in which case the result is returned but not stored. A
+   requested digest is computed from the canonical form and memoized onto the entry afterward,
+   under the same guard (§5, I32).
 8. **Validate.** Per call, against the shared value. A validator that fails or throws ends
    with `json.schema`.
 9. **Assemble.** Meta is derived (§1.3), the result is assembled, and an event goes to the log
@@ -242,8 +254,8 @@ The reason code is the interface; the surface is per module.
   "Unreachable" and "wrong shape" are different renderings because they are different problems.
 - **Server.** The router maps reason to status and **never forwards the upstream status**
   (`90-decisions.md` D20): unresolved and not-found to 404; timeout and transport to 504;
-  status, parse, and schema to 502. Forwarding an upstream 404 as the API's own 404 tells a
-  client "your route is wrong" when the truth is "our upstream is wrong".
+  status, parse, schema, and too-large to 502 (D33). Forwarding an upstream 404 as the API's
+  own 404 tells a client "your route is wrong" when the truth is "our upstream is wrong".
 - **Build.** Failures are named by id at the point of resolution, before anything is written.
 
 ### 4.3 Retry and partial failure
@@ -298,8 +310,12 @@ Ordering that must hold:
 
 - Cache lookup happens **before** transport; the in-flight join happens **after** the lookup
   misses. Reversing either reintroduces the duplicate-fetch case.
-- The digest is computed **before** the value is frozen and stored, so a cache hit can return a
-  digest without recomputing it.
+- A cache hit can return a digest without re-transporting. It is **memoized onto the entry**
+  rather than computed ahead of the store: a value is frozen and written with `digest: null`,
+  and the first request that asks for one computes it from the canonical form and writes it
+  back under the same generation guard, so an invalidate that landed meanwhile is not clobbered
+  (`20-contract.md` I32, I17). Computing it eagerly would pay for a digest on every load for
+  the callers that never ask.
 - The build gate runs **after** the last write into the public output (§3.2).
 - Lockfile entries are emitted in sorted-id order, so resolution order — which is
   nondeterministic under concurrency — cannot change the bytes.
@@ -357,40 +373,61 @@ round trips of a human's time to discover what one round trip could have said.
 
 ## 7. Open questions
 
-Four, in descending order of cost. The first is a contract gap and blocks part of J1.
+Four were raised, in descending order of cost. **Three are resolved** and are kept here with
+their resolutions marked in place, because the alternatives each one rejected are the reason
+the shipped answer is the shipped answer — the same argument that keeps rejected options in
+`90-decisions.md`. Only Q4 is still open, and it now blocks nothing.
 
-**Q1 — The core cannot wait, and two declared features require waiting.** Time was made a port
-for reading (`90-decisions.md` D4) but not for *scheduling*. Both `timeoutMs` and a retry's
-`delayMs` need to schedule work in the future, and the declared port set has no member that
-can. Three options: add a scheduling port and make its absence a construction-time error
-wherever a timeout or a non-zero retry delay is declared, matching the existing treatment of a
-missing clock; use an ambient timer in the core, which is available in both environments but
-makes retry and timeout untestable without real elapsed time and puts an ambient call in a core
-whose whole claim is that it has none; or drop `delayMs` and per-attempt timeouts from v1.
-**Recommendation: add the port.** It is the smallest change that keeps the core's claim true,
-and it is the same shape as the decision already taken for the clock. This needs a
-`20-contract.md` amendment before J1 can implement retry or timeout.
+**Q1 — RESOLVED. The port was added.** `JsonPorts.schedule` is `20-contract.md` §4, its absence
+is a construction-time `config.missingPort` under I6, and `/node` composes it in `nodePorts`.
+D48 later added the one map-independent case I6 had missed. The question as originally put:
 
-**Q2 — A missing port for a declared source kind: construction error or read-time failure?**
-An http source with no fetch port, or a file source with no filesystem port, is a loader that
-can never satisfy something its own map declares. Making it a construction-time error matches
-the existing treatment of a ttl policy without a clock; making it a read-time transport failure
-is more forgiving of a map that declares more than a given environment uses — which is a real
-case, since one map may be read by both a build and a runtime. **Recommendation:
-construction-time error, checked only against the sources that environment will actually
-resolve.** Either way `20-contract.md` I6 is enumerated and would need amending.
+> **The core cannot wait, and two declared features require waiting.** Time was made a port
+> for reading (`90-decisions.md` D4) but not for *scheduling*. Both `timeoutMs` and a retry's
+> `delayMs` need to schedule work in the future, and the declared port set has no member that
+> can. Three options: add a scheduling port and make its absence a construction-time error
+> wherever a timeout or a non-zero retry delay is declared, matching the existing treatment of
+> a missing clock; use an ambient timer in the core, which is available in both environments
+> but makes retry and timeout untestable without real elapsed time and puts an ambient call in
+> a core whose whole claim is that it has none; or drop `delayMs` and per-attempt timeouts from
+> v1. **Recommendation: add the port.** It is the smallest change that keeps the core's claim
+> true, and it is the same shape as the decision already taken for the clock.
 
-**Q3 — Which YAML parser, and is a runtime dependency acceptable at all?** The Node module's
-conversion needs one, and the package currently declares zero dependencies outside optional
-peers. Options: a normal dependency of `/node` only, leaving the core at zero; an optional peer
-the consumer supplies, keeping the dependency count at zero at the cost of setup in three
-consumer repositories; or a parser port, which is consistent with everything else here but is
-ceremony for a build-time convenience. **Recommendation: a normal dependency of `/node` only.**
-The core's zero-dependency claim is the one that matters, and it is untouched. This needs a
-decision-log entry naming the parser and the alternatives before J2.
+**Q2 — RESOLVED, as recommended.** The check is construction-time and scoped to the entries in
+the map supplied — `20-contract.md` I6, implemented in `checkRequiredPorts`. The question as
+originally put:
 
-**Q4 — Does the GameEngine's determinism guard ban ambient timers?** It bans the wall clock and
-randomness; whether it also bans scheduling is not stated in anything available here, and that
-repository is not present in this tree. It does not change the Q1 recommendation, which stands
-on testability alone, but it determines whether the ambient-timer option is available as a
-fallback at all.
+> **A missing port for a declared source kind: construction error or read-time failure?**
+> An http source with no fetch port, or a file source with no filesystem port, is a loader that
+> can never satisfy something its own map declares. Making it a construction-time error matches
+> the existing treatment of a ttl policy without a clock; making it a read-time transport
+> failure is more forgiving of a map that declares more than a given environment uses — which
+> is a real case, since one map may be read by both a build and a runtime.
+> **Recommendation: construction-time error, checked only against the sources that environment
+> will actually resolve.**
+
+The forgiving reading Q2 rejected turned out to have a narrow case after all, and it is not the
+one Q2 described: an **ad-hoc** source the map never declares. D48 handles it without reopening
+the choice — the port requirement widens by one map-independent clause rather than the check
+moving to read time.
+
+**Q3 — RESOLVED, as recommended.** `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a normal
+dependency resolved only by `/node`'s subpath; the core stays at zero (`90-decisions.md` D41,
+`20-contract.md` §12 U3). The question as originally put:
+
+> **Which YAML parser, and is a runtime dependency acceptable at all?** The Node module's
+> conversion needs one, and the package currently declares zero dependencies outside optional
+> peers. Options: a normal dependency of `/node` only, leaving the core at zero; an optional
+> peer the consumer supplies, keeping the dependency count at zero at the cost of setup in
+> three consumer repositories; or a parser port, which is consistent with everything else here
+> but is ceremony for a build-time convenience. **Recommendation: a normal dependency of
+> `/node` only.** The core's zero-dependency claim is the one that matters, and it is untouched.
+
+**Q4 — STILL OPEN, and no longer blocking. Does the GameEngine's determinism guard ban ambient
+timers?** It bans the wall clock and randomness; whether it also bans scheduling is not stated
+in anything available here, and that repository is not present in this tree.
+
+It was asked to decide whether the ambient-timer option was available as a fallback to Q1. Q1
+took the port, so there is no fallback to keep available and nothing waits on this answer. It is
+kept because J9 puts this core inside that guard, and the question will be asked again there —
+by which point the answer is checkable rather than speculative.

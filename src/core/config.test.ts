@@ -135,4 +135,18 @@ describe('checkRequiredPorts — config.missingPort (I6, J1.4)', () => {
     });
     expect(() => checkRequiredPorts(normalized, {})).toThrow(/'a'/);
   });
+
+  it("requires schedule alongside a supplied fetch port even when no entry declares http (D48)", () => {
+    // The one map-independent clause. An ad-hoc `request.source` can name an http URL that no
+    // entry declares, and it carries §3's default timeout, so an entry-scoped check cannot see
+    // the requirement coming.
+    const normalized = normalizeSourceMap({ version: 1, sources: { a: { at: 'build', inline: 1 } as never } });
+    expect(() => checkRequiredPorts(normalized, { fetch: async () => new Response() })).toThrow(JsonError);
+    expect(() => checkRequiredPorts(normalized, { fetch: async () => new Response() })).toThrow(/'schedule'/);
+  });
+
+  it('still constructs with no ports at all over a map of inline entries (J1.3)', () => {
+    const normalized = normalizeSourceMap({ version: 1, sources: { a: { at: 'build', inline: 1 } as never } });
+    expect(() => checkRequiredPorts(normalized, {})).not.toThrow();
+  });
 });

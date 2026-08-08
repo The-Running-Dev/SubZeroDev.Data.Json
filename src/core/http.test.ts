@@ -511,3 +511,32 @@ describe('J12.8: invariant-removal coverage', () => {
     expect(r2.ok && r2.data).toEqual({ v: 1 });
   });
 });
+
+describe('I2 holds on the ad-hoc http path with no schedule port (D48)', () => {
+  const empty: SourceMap = { version: 1, sources: {} };
+
+  // I6 checks the map, and an ad-hoc `request.source` is not in it. D48 closes most of the
+  // hole by demanding `schedule` wherever `fetch` is supplied; a loader holding neither port
+  // is what remains, and before D48 it rejected out of `load()` with a bare TypeError.
+  it('returns a result rather than rejecting when the loader holds no ports at all', async () => {
+    const loader = createJsonLoader(empty, {});
+
+    const result = await loader.load({ id: 'x', source: 'https://example.test/a.json' });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('json.transport');
+    expect(result.meta.provider).toBe('http');
+  });
+
+  it('settles rather than rejecting, whatever the ports (I2)', async () => {
+    const loader = createJsonLoader(empty, {});
+
+    // A rejection here is the defect; anything fulfilled is a JsonResult by construction.
+    const settled = await Promise.allSettled([
+      loader.load({ id: 'x', source: 'https://example.test/a.json' }),
+      loader.load({ id: 'y', source: 'http://example.test/b.json' }),
+    ]);
+
+    expect(settled.map((s) => s.status)).toEqual(['fulfilled', 'fulfilled']);
+  });
+});
