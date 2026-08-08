@@ -12,10 +12,10 @@ anything, because `20-contract.md` §12, `90-decisions.md`, `10-design.md` §2, 
 `00-brief.md` all cite the existing ids. Read in the running order below, not in numeric
 order.
 
-**Running order:** J1 → J10 → J11 → J12 → J2 → J3 → J5 → J4 → J6+J7 → J8 → J9.
+**Running order:** J1 → J10 → J11 → J12 → J2 → J3 → J5 → J4 → J13 → J6+J7 → J8 → J9.
 
-**J1, J10–J12 are the core. J2, J3, J5 are the environments. J4 is the fourth. J6+J7 prove it.
-J8–J9 are adoption.**
+**J1, J10–J12 are the core. J2, J3, J5 are the environments. J4 is the fourth. J13 closes the
+configuration gap all four left open. J6+J7 prove it. J8–J9 are adoption.**
 
 J1 is first because it carries the two assumptions the whole design rests on and neither has
 been tested: the digest's byte-identity with the GameEngine's serializer, which
@@ -24,9 +24,11 @@ that the core survives the determinism guard (I1). J10–J12 follow
 in ascending order of what a mistake in them costs to undo.
 
 **Where the work stands.** J1, J10, J11, J12, J2, J3, J5, and J4 are merged — the core and all
-four leaves. **J6+J7 is the frontier and it is blocked**: `20-contract.md` §12 U8 leaves the
-YAML-to-`SourceMap` bridge undesigned, and J6.4 cannot put sources into YAML that nothing can
-read back. That block is stated on the slice rather than discovered inside it. Doneness itself
+four leaves. **J13 is the frontier, and nothing is blocked.** J6+J7's block was `20-contract.md`
+§12 U8, and the `/contract` pass of 2026-08-08 resolved it: `/node` owns the YAML-to-`SourceMap`
+bridge (`90-decisions.md` D62), §9 declares it as `parseSourceMap` and `readSourceMap`, I42
+constrains it, and `config.unreadable` joins §10's closed union (D63). No code in `src/node/`
+implements any of it, so what was a block on J6+J7 is now a slice ahead of it. Doneness itself
 is the issue's to record, not this file's (`AGENTS.md`, *Tracking work*); the checkboxes below
 define a slice and are not a progress bar.
 
@@ -338,8 +340,9 @@ The id is not reused.
 **Out of scope:** write support of any kind — D5 and `00-brief.md` §5.1 are binding, and F2
 gates it on a second consumer. Do not add a write member to `FileSystemPort` to make the
 build's job easier; D19 rejected exactly that. **A YAML-to-`SourceMap` reader is not in this
-slice**: `convertYamlToJson` converts files, not configuration, and §12 U8 leaves the reader's
-return type, error surface, and validation undesigned. Do not invent one here.
+slice**: `convertYamlToJson` converts files, not configuration. §12 U8 left the reader
+undesigned when this slice was written and it is now designed, but it belongs to **J13** —
+either way, not here.
 
 ---
 
@@ -364,7 +367,7 @@ I30, I33, I37
       requested, writes one artifact per source into `outDir`, and returns
       `PrefetchOutput { lock, runtimeMap }`. Exactly one source map is read per pass — public
       or server, never both (`10-design.md` §3.2). The map arrives already in memory; nothing
-      here reads YAML (§12 U8).
+      here reads YAML — the reader is `/node`'s and the slice is J13.
 - [ ] **J3.2** The lockfile matches §7. Each entry carries exactly `id`, `digest`, and
       `location` — no `resolvedAt` or other clock-derived field (D47).
 - [ ] **J3.3** Two builds over unchanged remote bytes produce identical digests **and a
@@ -401,7 +404,9 @@ I30, I33, I37
 **Out of scope:** importing `/node`. `10-design.md` §2 and I37 state `/build` does not depend
 on it — `/build` reads through whatever ports it is handed and writes with the Node runtime
 directly (D19). The consumer composes the two, not the module graph. Do not read both source
-maps in one pass to save a step, and do not add a YAML reader to close §12 U8 from this side.
+maps in one pass to save a step, and do not add a YAML reader to close what was §12 U8 from
+this side — that reader is J13's, and `/build` reaches it through the composition root rather
+than through the module graph (I37).
 
 ---
 
@@ -470,6 +475,70 @@ binding and `20-contract.md` §9 exports none, so it is not in this slice.
 
 ---
 
+## J13 — Node: reading a source map out of the YAML it is written in
+
+Delivers: A Node server or a build reads its configuration straight from the file a human
+wrote it in, instead of every consumer inventing its own way to turn that file into something
+the loader accepts. A configuration mistake is reported when the file is read — naming the
+file, and the entry and field at fault — rather than surfacing later as a payload that will
+not load.
+
+**Contract:** `20-contract.md` §6, §9 (`/node`, `parseSourceMap` and `readSourceMap`), §10.1
+(`config.invalidEntry`, `config.unreadable`), §11 (source maps row); §8 I24, I37, I41, I42
+**Touches:** `src/node/`
+**Depends on:** J1 (the entry check the reader applies is the core's), J2 (the module, its
+YAML parser, and its filesystem)
+**Blocked by:** nothing. This slice *is* the resolution of what was §12 U8
+(`90-decisions.md` D62 for the module, D63 for the signatures)
+
+### Done when
+
+- [ ] **J13.1** `parseSourceMap(text)` returns the `SourceMap` §6 declares — the parsed
+      document, not a normalized one. The returned value handed to `createJsonLoader`
+      constructs a working loader, and the loader normalizes it itself, once, at construction
+      (I41). No second shape for one configuration is introduced.
+- [ ] **J13.2** Every per-entry fault the core rejects, the reader rejects, with the same
+      `JsonError('config.invalidEntry')` naming the same id and field: `version` not `1`,
+      missing `at`, missing `cache` on an http or file entry, `cache` present on an inline
+      entry, more than one of `url`/`path`/`inline`, an `mtime` policy on a non-file entry,
+      and `retry.attempts < 1` (§10.1).
+- [ ] **J13.3** A shared fixture corpus is asserted against **both** `createJsonLoader` and
+      `parseSourceMap`, and the two agree on every case — that is what makes I42's "exactly
+      the maps `createJsonLoader` accepts" checkable rather than reviewed, and it fails if
+      `/node` grows a second copy of §6's rules that drifts from the core's. Accepted and
+      rejected counts are both stated and both non-zero (`AGENTS.md`, *Verification*).
+- [ ] **J13.4** The one check the core cannot make, because its own input is already typed:
+      text that is not YAML, and a document that parses to something other than an object
+      carrying a `sources` record, each yield `config.invalidEntry` naming the file-level
+      fault rather than an id (I42). No `YAMLException` and no bare `TypeError` escapes
+      either function (I24).
+- [ ] **J13.5** `readSourceMap(path)` is the file half, built on the parser. An absent path, a
+      directory, and a permission or IO failure each yield `JsonError('config.unreadable')`
+      naming the path and the underlying reason — never `config.invalidEntry`, because no
+      bytes arrived and so no id can be named. `parseSourceMap` never raises
+      `config.unreadable`: it is handed text and cannot fail that way (D63).
+- [ ] **J13.6** The split is where the failure was, not which function was called: a file that
+      exists and reads cleanly but carries a bad entry yields `config.invalidEntry` out of
+      `readSourceMap`, with the id and field named exactly as `parseSourceMap` would have
+      named them.
+- [ ] **J13.7** Both functions are exported from the `/node` subpath and from nowhere else.
+      `/node` reaches the core's check by relative import into `src/core/` and imports no
+      sibling leaf, and the core gains no new public export to serve this (I37,
+      `10-design.md` §2).
+- [ ] **J13.8** I42 has a test that fails when the invariant is removed, demonstrated by
+      removing it rather than asserted (`00-brief.md` §7.1).
+
+**Out of scope:** converting data files. `convertYamlToJson` is J2's, it reads data rather
+than configuration, and the two paths share nothing beyond the parser (§9) — do not route one
+through the other. Do not normalize in the reader; I41 makes that the loader's, once. Do not
+read both maps in one pass, merge them, or check cross-file duplicate ids — `assertNoDuplicateIds`
+is `/build`'s (I23, J3.9) and this reader is handed one file. Do not watch the file for changes:
+a changed map means a new loader (`10-design.md` §1.2), not a reload. Do not migrate a consumer
+onto it here — that is J6+J7 — and do not add a writer, which `00-brief.md` §5.1 forbids
+outright.
+
+---
+
 ## J6+J7 — Migrate Docs-Template and Portfolio/api
 
 **One gate, both consumers.** Landing the browser first lets the core accrete browser
@@ -484,18 +553,15 @@ wrong.
 **Contract:** all of `20-contract.md`
 **Touches:** `Docs-Template`, `Portfolio`, `Portfolio/api`, `config/sources.public.yml`,
 `config/sources.server.yml`
-**Depends on:** J2, J3, J4, J5. The §12 U1 block that reached this slice through J4 is lifted
-(`90-decisions.md` D53)
+**Depends on:** J2, J3, J4, J5, J13. The §12 U1 block that reached this slice through J4 is
+lifted (`90-decisions.md` D53), and so is the §12 U8 block that was stated here
 
-**Blocked by: `20-contract.md` §12 U8.** J6.4 and J6.6 put sources into
-`config/sources.public.yml`, and **nothing turns that file into a `SourceMap`.** §10.1 names
-`/node` as raising `config.invalidEntry` "when reading YAML" but §9 exports no reader;
-`convertYamlToJson(from, to)` converts files, not configuration; J3.1 takes a map already in
-memory. Both consumers need the bridge and they need different halves of it — the browser
-reaches its map through the build's derived runtime map (I33), the API needs a reader at
-runtime. Until U8 names a signature, this slice cannot be implemented without inventing a
-public interface, which *Hard rules* forbids. **This is a `/contract` amendment, at `opus`,
-`high` — not something this slice resolves on the way past.**
+**Blocked by:** nothing. U8 was this slice's block — J6.4 and J6.6 put sources into
+`config/sources.public.yml` and nothing turned that file into a `SourceMap`. It is resolved
+(`90-decisions.md` D62, D63), and the bridge is J13 rather than a signature this slice invents
+on the way past. The two consumers still need different halves of it: the browser reaches its
+map through the build's derived runtime map (I33), and the API reads `sources.server.yml` at
+runtime through `readSourceMap`.
 
 ### Done when
 
@@ -519,8 +585,9 @@ public interface, which *Hard rules* forbids. **This is a `/contract` amendment,
       `HttpDataProvider`'s 5-minute TTL is carried across as `cache: { ttlMs: 300000 }` or
       changed on purpose with the change recorded — D32 names this exact source as the one a
       line-deleting migration would silently turn static.
-- [ ] **J6.9** Each migrated repository reaches its `SourceMap` through whatever §12 U8
-      settles, and neither repository hand-rolls a YAML reader of its own. A second private
+- [ ] **J6.9** Each migrated repository reaches its `SourceMap` through J13's reader — the API
+      through `readSourceMap`, the browser through the build's derived runtime map (I33) — and
+      neither repository hand-rolls a YAML reader of its own. A second private
       parser in a consumer is the duplication this package exists to retire, reappearing one
       layer up.
 - [ ] **J7.1** `FileUtils.readJsonFile` and `fileExists` are replaced by the loader.
@@ -535,9 +602,14 @@ public interface, which *Hard rules* forbids. **This is a `/contract` amendment,
 
 **Out of scope:** fixing the `JsonFileRepository` defects J7.3 records. D5 leaves them
 unowned deliberately, and repairing them here converts a scoping decision into an unreviewed
-one. Do not migrate `Data` on the way past — that is J8. **Do not design the YAML reader
-here**: U8 is a contract question, and a slice that answers it under migration pressure
-answers it for one consumer's convenience rather than for both.
+one. Do not migrate `Data` on the way past — that is J8. **Do not build or extend the YAML
+reader here**: it is J13's, and a migration that reshapes it under its own pressure reshapes it
+for one consumer's convenience rather than for both — which is why U8 was answered by
+`/contract` and not by this slice. **Do not change what `useJson().refetch()` does either**,
+however plainly the migration wants it to: `20-contract.md` §9 declares the signature and
+names no semantics, `10-design.md` names none, and `90-decisions.md` records that under a
+`manual` policy it can never return a fresh value. That is a decision owed before it is code,
+and it is not this slice's to take.
 
 ---
 
@@ -612,6 +684,16 @@ lie in the other direction.
 I37 is listed on the `Contract:` line of all four leaf slices because it constrains each of
 them; it is a single guard, not four.
 
+**One more is owed and takes the same route.** D61 narrowed I17 to concurrent *cache-eligible*
+misses and extended I40 alongside it, after J11 — the slice that proves I17 — had already
+merged. `src/core/pipeline.ts` already behaves that way, so no pipeline change is owed; what is
+owed is the test, in both directions, because `JsonRequest.cache: false` is exercised by no
+test anywhere in the tree and under `00-brief.md` §7.1 an invariant whose test still passes with
+the invariant removed is not a contracted invariant. That is **`/fix`'s**, at `sonnet`,
+`medium`, and it gains a row in the table above when it lands. It is deliberately **not** a new
+slice and **not** a criterion appended to J11: J11 is merged, and an appended box would leave
+its issue permanently unticked, which is the failure this section exists to avoid.
+
 ## Regression corpus
 
 `harness/` reproduces the red-team findings as originally reported (`node harness/run.mjs`,
@@ -633,8 +715,10 @@ cross-check target, so a probe that still reproduces after J1.5 is a genuine reg
 register that answers them; this section is a pointer, not a second copy (`AGENTS.md`,
 *Single ownership*).
 
-- **§12 U8** — nothing turns `sources.*.yml` into a `SourceMap`. Was gap 1. Blocks **J6+J7**,
-  and constrains J2 and J3 to leave it alone.
+- **§12 U8 is closed.** Nothing turned `sources.*.yml` into a `SourceMap`; §9 now declares
+  `parseSourceMap` and `readSourceMap` under I42 (`90-decisions.md` D62, D63). Was gap 1. It
+  blocked **J6+J7** and it no longer does — the work is **J13**, and J2 and J3 still leave it
+  alone.
 - **§12 U7** — no public canonical serializer. Was gap 2. Blocks **J9**.
 - Gap 3, `meta.location` for an `inline` source, is **closed**: `20-contract.md` §1 states that
   `location` is `''` both when nothing resolved and for an `inline` source, and that `provider`
