@@ -14,6 +14,10 @@ dist/
 # the transcripts at any time, and meaningless on another machine.
 .claude/session-costs.tsv
 
+# Per-machine gate discovery cache, written by tools/Test-GatesCache.ps1. Regenerable from
+# .github/workflows and package.json at any time.
+.claude/gates.json
+
 # graphify — regenerable and expensive; never commit
 graphify-out/
 .graphify_*
