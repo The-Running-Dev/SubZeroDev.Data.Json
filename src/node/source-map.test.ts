@@ -176,8 +176,53 @@ describe('parseSourceMap — the reader-only checks (J13.1, J13.4)', () => {
     }
   });
 
+  it('rejects a null entry under sources with config.invalidEntry naming the id, not a TypeError', () => {
+    // An id stubbed with nothing under it yet — `a:` — parses to a null entry, which the
+    // core's typed input cannot represent and its check therefore cannot survive.
+    const text = 'version: 1\nsources:\n  a:\n';
+    expect(() => parseSourceMap(text)).toThrow(JsonError);
+    try {
+      parseSourceMap(text);
+    } catch (error) {
+      expect((error as JsonError).code).toBe('config.invalidEntry');
+      expect((error as JsonError).message).toContain("'a'");
+    }
+  });
+
+  it('rejects a self-referencing alias with config.invalidEntry, not a TypeError out of the error path', () => {
+    const text = '--- &a\n- *a\n';
+    expect(() => parseSourceMap(text)).toThrow(JsonError);
+    try {
+      parseSourceMap(text);
+    } catch (error) {
+      expect((error as JsonError).code).toBe('config.invalidEntry');
+    }
+  });
+
+  it("names the shape fault when 'sources' is present but not a record, rather than calling it missing", () => {
+    expect(() => parseSourceMap('version: 1\nsources: [a, b]\n')).toThrow(JsonError);
+    try {
+      parseSourceMap('version: 1\nsources: [a, b]\n');
+    } catch (error) {
+      expect((error as JsonError).code).toBe('config.invalidEntry');
+      expect((error as JsonError).message).not.toContain('missing');
+      expect((error as JsonError).message).toContain('an array');
+    }
+  });
+
   it('never lets a YAMLException or a bare TypeError escape (I24, J13.4)', () => {
-    for (const text of ['{ broken: [', '42', 'null', '- a\n- b', 'version: 1']) {
+    const texts = [
+      '{ broken: [',
+      '42',
+      'null',
+      '- a\n- b',
+      'version: 1',
+      'version: 1\nsources:\n  a:\n',
+      'version: 1\nsources:\n  a: hello\n',
+      'version: 1\nsources: [a, b]\n',
+      '--- &a\n- *a\n',
+    ];
+    for (const text of texts) {
       try {
         parseSourceMap(text);
       } catch (error) {
