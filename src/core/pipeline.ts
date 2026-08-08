@@ -8,6 +8,7 @@ import type {
   CacheEntry,
   CachePolicy,
   Digest,
+  JsonEvent,
   JsonMeta,
   JsonPorts,
   JsonRequest,
@@ -18,6 +19,32 @@ import type {
   SourceId,
   Unwrap,
 } from './types.js';
+
+/** §4's phase, tracked alongside a `JsonResult` so `load()` can assemble the I38 event without
+ * re-deriving it from the result after the fact — `json.schema` alone cannot distinguish an
+ * unwrap/domain-check failure from a validator failure, so the phase is threaded through instead. */
+export type EventPhase = JsonEvent['phase'];
+export interface PhasedResult<T> {
+  readonly result: JsonResult<T>;
+  readonly phase: EventPhase;
+}
+
+/** §4: fetch, timeout, notFound, tooLarge, and status failures are all terminal for `fetch`. */
+function phaseForCoreFailure(reason: Exclude<ReasonCode, 'json.ok'>): EventPhase {
+  if (reason === 'json.parse') return 'parse';
+  if (
+    reason === 'json.transport' ||
+    reason === 'json.status' ||
+    reason === 'json.timeout' ||
+    reason === 'json.notFound' ||
+    reason === 'json.tooLarge'
+  ) {
+    return 'fetch';
+  }
+  // json.schema here originates inside fetchFileCore/httpAttempt, from applyUnwrap or
+  // canonicalize — before validate ever runs.
+  return 'unwrap';
+}
 
 function deepFreeze<T>(value: T): T {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
@@ -115,26 +142,40 @@ function applyUnwrap(parsed: unknown, unwrap: Unwrap): unknown {
   throw new Error(`unknown unwrap mode ${String(unwrap)}`);
 }
 
-/** Runs the request's validator, if any, against an already-frozen value and assembles the result. */
-function assembleValidated<T>(request: JsonRequest<T>, id: SourceId, value: unknown, baseMeta: JsonMeta): JsonResult<T> {
+/**
+ * Runs the request's validator, if any, against an already-frozen value and assembles the
+ * result. `noValidatorPhase` is the phase to report when no validator ran — `cache` from a hit,
+ * `unwrap` from a fresh load (§4) — and is overridden to `validate` whenever one did, success or
+ * failure, which is also what makes a joined caller report its own last phase (§4).
+ */
+function assembleValidated<T>(
+  request: JsonRequest<T>,
+  id: SourceId,
+  value: unknown,
+  baseMeta: JsonMeta,
+  noValidatorPhase: EventPhase,
+): PhasedResult<T> {
   if (!request.validate) {
-    return { ok: true, reason: 'json.ok', data: value as T, meta: baseMeta };
+    return { result: { ok: true, reason: 'json.ok', data: value as T, meta: baseMeta }, phase: noValidatorPhase };
   }
   let verdict;
   try {
     verdict = request.validate(value);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return fail(request, id, 'json.schema', `validator threw: ${message}`, baseMeta);
+    return { result: fail(request, id, 'json.schema', `validator threw: ${message}`, baseMeta), phase: 'validate' };
   }
   if (!verdict.ok) {
-    return fail(request, id, 'json.schema', verdict.message, { ...baseMeta, validated: false });
+    return { result: fail(request, id, 'json.schema', verdict.message, { ...baseMeta, validated: false }), phase: 'validate' };
   }
   return {
-    ok: true,
-    reason: 'json.ok',
-    data: deepFreeze(verdict.value),
-    meta: { ...baseMeta, validated: true },
+    result: {
+      ok: true,
+      reason: 'json.ok',
+      data: deepFreeze(verdict.value),
+      meta: { ...baseMeta, validated: true },
+    },
+    phase: 'validate',
   };
 }
 
@@ -164,14 +205,14 @@ function digestAndFreeze<T>(
 }
 
 /** The 10-design.md §3.1 pipeline for an `inline` entry. Inline is never cached (§6). */
-function resolveInline<T>(request: JsonRequest<T>, id: SourceId, source: Extract<JsonSource, { kind: 'inline' }>, unwrap: Unwrap): JsonResult<T> {
+function resolveInline<T>(request: JsonRequest<T>, id: SourceId, source: Extract<JsonSource, { kind: 'inline' }>, unwrap: Unwrap): PhasedResult<T> {
   const location = locationOf(source);
   let value: unknown;
   try {
     value = applyUnwrap(source.data, unwrap);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return fail(request, id, 'json.schema', message, fileMeta(id, location, 0, 0));
+    return { result: fail(request, id, 'json.schema', message, fileMeta(id, location, 0, 0)), phase: 'unwrap' };
   }
 
   const digested = digestAndFreeze(
@@ -182,10 +223,10 @@ function resolveInline<T>(request: JsonRequest<T>, id: SourceId, source: Extract
     0,
     0,
   );
-  if (!digested.ok) return digested.result;
+  if (!digested.ok) return { result: digested.result, phase: 'unwrap' };
 
   const baseMeta: JsonMeta = { id, provider: 'inline', location, bytes: 0, digest: digested.digest, cached: false, attempts: 0, validated: false };
-  return assembleValidated(request, id, digested.frozen, baseMeta);
+  return assembleValidated(request, id, digested.frozen, baseMeta, 'unwrap');
 }
 
 interface CacheHit {
@@ -511,9 +552,12 @@ function finalizeCore<T>(
   location: string,
   cache: CacheManager | null,
   token: CacheToken | null,
-): JsonResult<T> {
+): PhasedResult<T> {
   if (!core.ok) {
-    return fail(request, id, core.reason, core.message, fileMeta(id, core.location ?? location, core.bytes, core.attempts, null, provider));
+    return {
+      result: fail(request, id, core.reason, core.message, fileMeta(id, core.location ?? location, core.bytes, core.attempts, null, provider)),
+      phase: phaseForCoreFailure(core.reason),
+    };
   }
 
   let digest: Digest | null = null;
@@ -545,11 +589,11 @@ function finalizeCore<T>(
     attempts: core.attempts,
     validated: false,
   };
-  return assembleValidated(request, id, core.value, baseMeta);
+  return assembleValidated(request, id, core.value, baseMeta, 'unwrap');
 }
 
 /** A cache hit: validate per call against the shared, already-frozen value (I12, I15). */
-function finishFromCache<T>(request: JsonRequest<T>, id: SourceId, entry: CacheEntry, cache: CacheManager): JsonResult<T> {
+function finishFromCache<T>(request: JsonRequest<T>, id: SourceId, entry: CacheEntry, cache: CacheManager): PhasedResult<T> {
   let digest = entry.digest;
   if (request.digest && digest === null) {
     // D29: memoize a digest computed from the cached value; never re-transport.
@@ -567,7 +611,7 @@ function finishFromCache<T>(request: JsonRequest<T>, id: SourceId, entry: CacheE
     attempts: 0,
     validated: false,
   };
-  return assembleValidated(request, id, entry.data, baseMeta);
+  return assembleValidated(request, id, entry.data, baseMeta, 'cache');
 }
 
 /**
@@ -581,13 +625,13 @@ export async function runPipeline<T>(
   ports: JsonPorts,
   cache: CacheManager,
   inFlight: InFlightManager<CoreJoin>,
-): Promise<JsonResult<T>> {
+): Promise<PhasedResult<T>> {
   const id = request.id;
 
   const isAdHoc = request.source !== undefined;
   const source = isAdHoc ? normalizeSource(request.source!) : declared?.source;
   if (!id || !source) {
-    return fail(request, id, 'json.unresolved', `no source declared for id '${id}'`, emptyMeta(id || ''));
+    return { result: fail(request, id, 'json.unresolved', `no source declared for id '${id}'`, emptyMeta(id || '')), phase: 'resolve' };
   }
 
   const unwrap = isAdHoc ? 'none' : (declared?.unwrap ?? 'none');

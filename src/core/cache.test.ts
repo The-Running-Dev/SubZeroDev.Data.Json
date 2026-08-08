@@ -559,3 +559,14 @@ describe('ports.cache omitted: the loader supplies its own default CacheStore', 
     expect(second.ok && second.meta.cached).toBe(true);
   });
 });
+
+describe('I38: a cache hit with no validator reports phase cache', () => {
+  it('the second, cached load emits phase cache; the first, fresh load emits phase unwrap', async () => {
+    const events: Array<{ phase: string }> = [];
+    const table = fakeFs({ '/x.json': { text: '{"v":1}', mtimeMs: 1 } });
+    const loader = createJsonLoader(fileMap('/x.json', 'manual'), { fs: table.fs, log: (e) => events.push(e) });
+    await loader.loadById('a');
+    await loader.loadById('a');
+    expect(events).toMatchObject([{ phase: 'unwrap' }, { phase: 'cache' }]);
+  });
+});
