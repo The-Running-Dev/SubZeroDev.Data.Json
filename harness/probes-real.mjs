@@ -142,10 +142,11 @@ probe('F3', 'STRUCTURAL', 'A shared CacheStore breaks "two loaders in one proces
       "so A's invalidate cannot evict B's entry.",
     observed: viaB.meta.cached === true && afterEvict.meta.cached === false,
     detail:
-      `B's first read: cached=${viaB.meta.cached} (still true — B legitimately shares the store, this half of ` +
-      `§5 was never the finding). After a.invalidate('config'), B's next read: cached=${afterEvict.meta.cached}. ` +
-      'Not reproduced: cache-manager.ts namespaces every key by instanceId:epoch:generation:id, so A bumping ' +
-      "its own epoch cannot touch B's keys. Confirmed by inspection and by this run.",
+      `B's first read: cached=${viaB.meta.cached} — B does not cross-serve A's entry; each loader transports ` +
+      `its own. After a.invalidate('config'), B's next read: cached=${afterEvict.meta.cached} — B's own entry ` +
+      "is untouched by A's invalidate. Not reproduced: cache-manager.ts namespaces every key by " +
+      "instanceId:epoch:generation:id, so a shared CacheStore neither cross-serves nor cross-invalidates. " +
+      'Confirmed by inspection and by this run.',
   };
 });
 
@@ -427,9 +428,13 @@ probe('F14', 'LOCAL', 'invalidate() cannot guard a load whose key is not yet in 
 
 probe('F15', 'LOCAL', 'An mtime stamp misses a same-size edit inside the clock resolution', async () => {
   const fs = fakeFs({ '/data/config.json': { body: '{"v":"a"}', mtimeMs: 1_700_000_000_000 } });
+  // No `watch`: loader.ts only registers one when `ports.fs.watch` exists (I26/D31), and a
+  // watch-driven invalidation on __write would mask the mtime/size comparison this probe
+  // exists to isolate. Staleness here must be judged by the stamp alone.
+  const fsPort = { read: fs.read, stat: fs.stat };
   const loader = createJsonLoader(
     { version: 1, sources: { config: { at: 'runtime', path: '/data/config.json', cache: { mtime: true } } } },
-    { fs },
+    { fs: fsPort },
   );
 
   const first = await loader.loadById('config');
