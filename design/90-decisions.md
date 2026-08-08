@@ -1485,6 +1485,40 @@ implementation was already built the other way.
 
 ---
 
+## D57 — Publish `@subzerodev/data-json` to the npm registry, tag-triggered (2026-08-08)
+
+**Context.** Issue #34 (O28), filed while selecting J8: the package has never been published
+— `npm view @subzerodev/data-json` 404s — and had no installable form for another
+repository. `dist/` was gitignored with no `files` allowlist and no `prepublishOnly`/`prepare`
+lifecycle script, so a `file:` or git dependency would have installed an empty package. J8
+(and transitively J9) assume "the published CLI" already exists to depend on; it did not.
+
+**Chosen.** Registry publish. A `files: ["dist"]` allowlist and a `prepublishOnly: "npm run
+build"` script make `npm publish` ship built output. A new workflow,
+`.github/workflows/publish.yml`, runs on a pushed `v*.*.*` tag: install, typecheck, lint,
+test, build, then `npm publish --provenance --access public` using an `NPM_TOKEN` repository
+secret. Versioning is manual — `npm version <major|minor|patch>` committed and tagged by
+hand — matching this repository's preference for an explicit, logged decision over
+automation-by-convenience (no changesets, no auto-bump on merge).
+
+**Rejected.** A `file:`/git dependency via a `prepare` script. Cheaper to stand up (no
+registry account, no secret), but every consumer install re-clones and rebuilds the package,
+version pinning is a commit SHA rather than semver, and it does not satisfy what J8's
+criteria already assume ("the published CLI"). Left as the fallback if npm registry access
+turns out to be unavailable.
+
+**Known cost, accepted.** `NPM_TOKEN` must be created on npmjs.org and added as a GitHub
+repository secret by hand — an agent session cannot obtain npm credentials or add a repo
+secret itself. The workflow is wired and inert until that secret exists; no tag has been
+pushed and no publish has run.
+
+**Reversibility:** cheap to keep publishing. **Expensive to unpublish** — npm blocks
+unpublishing a version once other packages may depend on it (a 72-hour grace window only), so
+a first publish, once it happens, is effectively permanent; the workflow is reviewed before
+the first tag is pushed rather than trusted on the first run.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
