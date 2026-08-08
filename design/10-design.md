@@ -7,16 +7,18 @@ do not say. Decisions and their reversal costs are in `90-decisions.md`.
 Where this document decides something the contract does not yet state, the decision is
 logged and named here as needing to land in `20-contract.md`. No capability this file names is
 missing from the contract: §7's Q1, Q2 and Q3 have all landed, and Q4 is a question about an
-external repository rather than a gap in this one. **One thing here does contradict the
-contract, deliberately and in one direction**: §5 narrows I17, which `20-contract.md` §12 U9
-had already recorded as knowingly false as written. The amendment is named where it arises and
-is `/contract`'s to make.
+external repository rather than a gap in this one. **Nothing here contradicts the contract.**
+§5's narrowing of I17 did until the `/contract` pass of 2026-08-08 landed it, which is why the
+narrowing is still argued at length where it arises rather than merely asserted.
 
 The 2026-08-08 revision settles the two things `20-contract.md` §12 recorded as undetermined
 here and closes both: **U9**, whether a cache opt-out participates in single-flight (§5,
 `90-decisions.md` D61), and **U8**, which module turns a YAML source map into a `SourceMap`
-(§2, D62). Each needs a corresponding `20-contract.md` amendment — I17 narrowed for the first,
-a `/node` export declared for the second — and neither is made here. The same pass carries in
+(§2, D62). Each needed a corresponding `20-contract.md` amendment, and the `/contract` pass
+after this revision made both: I17 narrowed to concurrent cache-eligible misses with I40
+extended alongside it for the first, and `parseSourceMap` and `readSourceMap` declared in §9
+under I42 for the second, with the signatures this file left open decided as D63. The same
+pass carries in
 four things the contract had determined more precisely than this file said: the half-open ttl
 boundary (§3.1), a hit's stored `location` (§1.3), the size bound as a boundary failure of its
 own (§4.1), and the full port requirement at construction (§4.1). U7 is *not* reopened: it
@@ -374,9 +376,10 @@ question of whether that entry gets stored would depend on which of the two arri
 call site's behaviour must not turn on an unrelated concurrent call, for the same reason §1.4
 does not let it turn on a cache policy it cannot see.
 
-This narrows `20-contract.md` I17, which as written admits no exception: the guarantee is over
-concurrent **cache-eligible** misses. That amendment is `/contract`'s, and the flag needs the
-first test it has ever had.
+This narrows `20-contract.md` I17, which as originally written admitted no exception: the
+guarantee is over concurrent **cache-eligible** misses, a term §3 there now defines, and I40
+carries the other half — a read outside it performs no lookup at all. What the narrowing still
+owes is the flag's first test, in both directions.
 
 **Invalidation during a load.** Each cache key carries a generation counter, incremented by
 `invalidate`. A load stamps the generation it started under and compares before storing; a
