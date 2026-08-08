@@ -264,6 +264,50 @@ describe('J11.7: invariant-removal coverage', () => {
   });
 });
 
+describe('D61/I40: a cache: false read neither joins nor is joined', () => {
+  it('an opt-out read concurrent with a normal read of one id issues two transports, and neither observes the other', async () => {
+    const table = controllableFs({ '/x.json': { text: '{"v":1}', mtimeMs: 1 } });
+    const loader = createJsonLoader(fileMap('/x.json'), { fs: table.fs });
+
+    const normal = loader.loadById<{ v: number }>('a');
+    await flush();
+    const optOut = loader.load<{ v: number }>({ id: 'a', cache: false });
+    await flush();
+    expect(table.reads).toBe(2); // the opt-out read did not join the normal read's in-flight load
+
+    table.releaseNext('{"v":1}');
+    table.releaseNext('{"v":2}');
+    const [normalResult, optOutResult] = await Promise.all([normal, optOut]);
+
+    expect(normalResult.ok && normalResult.data).toEqual({ v: 1 });
+    expect(normalResult.ok && !normalResult.meta.cached).toBe(true);
+    expect(optOutResult.ok && optOutResult.data).toEqual({ v: 2 });
+    expect(optOutResult.ok && !optOutResult.meta.cached).toBe(true);
+    expect(loader.stats().entries).toBe(1); // only the normal load wrote the cache
+  });
+
+  it('a normal read is unaffected by a concurrent opt-out read of the same id', async () => {
+    const table = controllableFs({ '/x.json': { text: '{"v":1}', mtimeMs: 1 } });
+    const loader = createJsonLoader(fileMap('/x.json'), { fs: table.fs });
+
+    const optOut = loader.load<{ v: number }>({ id: 'a', cache: false });
+    await flush();
+    const normal = loader.loadById<{ v: number }>('a');
+    await flush();
+    expect(table.reads).toBe(2); // the normal read started its own transport, not joined to the opt-out's
+
+    table.releaseNext('{"v":2}');
+    table.releaseNext('{"v":1}');
+    const [optOutResult, normalResult] = await Promise.all([optOut, normal]);
+
+    expect(optOutResult.ok && optOutResult.data).toEqual({ v: 2 });
+    expect(normalResult.ok && normalResult.data).toEqual({ v: 1 });
+    expect(loader.stats().entries).toBe(1); // only the normal load wrote the cache
+    expect(loader.stats().hits).toBe(0);
+    expect(loader.stats().misses).toBe(1); // the opt-out read performed no lookup, so it recorded no miss either
+  });
+});
+
 describe('I38: a joined caller reports its own last phase, not the leader\'s', () => {
   it('the leader (no validator) reports unwrap; the joiner (supplied a validator) reports validate', async () => {
     const events: Array<{ phase: string }> = [];
