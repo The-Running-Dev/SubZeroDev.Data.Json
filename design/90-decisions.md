@@ -1283,6 +1283,83 @@ through is still a guard that reports green on the first core dependency added.
 
 ---
 
+## D51 — The leaf half of the star graph becomes I37, guarded and tested (2026-08-08)
+
+**Context.** `10-design.md` §2 draws the module graph as a star and then names its own failure
+mode: "the only way to break it is a leaf importing a leaf. That is the thing to guard against,
+and it has a cheap guard: the core's out-degree is zero and each leaf's in-degree from siblings
+is zero, both checkable mechanically." Only the first half was ever written into the contract.
+I1 covers the core; the leaf half had no invariant and no rule, and `eslint.config.js` scoped
+every rule to `src/core/**`. `/build` importing `/node` — the edge D19 forbids because it is
+how `FileSystemPort` would acquire a write member — was review-enforced. The tree was clean, so
+nothing was broken; as with D50, the enforcement claim was what was false.
+
+**Chosen.** I37, and a second lint block over `src/{node,build,zod,react}/**` banning a
+relative reach into a sibling leaf across static imports, dynamic `import()`, and re-exports.
+`../core/` is deliberately outside the alternation: that edge is what the star graph is made
+of. Test files are outside the guard — a fixture is not a shipped edge, and a `/build` test
+composing `nodePorts` is legitimate.
+
+Also chosen, and new relative to I1: **the guard has a test.** `src/boundaries.test.ts` runs
+ESLint over violating fixtures for all three specifier shapes and over two legal imports.
+Verified by reverting: with the alternation neutered, three of five fail. I1 has no equivalent
+and never has, which is the mechanism by which the hole D50 closed went unnoticed for as long
+as it did — a rule nothing exercises reports green whether or not it works.
+
+**Rejected.** Leaving it uncontracted, on the grounds the tree is clean — that is the argument
+D50 rejected two entries ago, and it ages badly the first time `/react` lands and wants
+something `/node` already has. Also rejected: routing it to `/design` as a question about
+whether the star graph binds — D2 and D19 already settled that it does, so there was no
+question, only a missing transcription. Also rejected: `no-restricted-imports` patterns, for
+D50's reason.
+
+**Reversibility:** cheap. One invariant row, one lint block, one test file.
+
+---
+
+## D52 — One event per `load`, and `phase` is the last phase that ran (2026-08-08)
+
+**Context.** `10-design.md` §1.2 gives the Event entity a lifecycle — "fire-and-forget; nothing
+may depend on delivery" — and §3.1 step 9 sends one to the log port. `20-contract.md` §4 typed
+`JsonEvent` and `JsonPorts.log` and then obliged nothing: no invariant named either, so under
+`00-brief.md` §7.1 no test was owed, and `ports.log` is called nowhere in `src/`. A typed port
+that no invariant governs is surface the implementation is free to skip, and it did.
+
+The design determines that an event is emitted and that delivery is not load-bearing. It does
+**not** determine which of `phase`'s six values a given outcome carries, and `/contract` may
+not invent that. Raised as a fork; the choice taken was to settle it here rather than defer it
+to a `/design` pass, this session already being at that tier.
+
+**Chosen.** I38 for what the design settles: exactly one event per completed `load`, emitted
+after assembly and before `load` resolves, carrying that call's own `id`, `reason`, and `meta`,
+and a throwing `log` port changing neither the result nor the cache (I2 admits no exception).
+Every id resolved through `loadById`, `loadMany`, `preload`, and `prefetch` emits, and so does
+a caller that joined rather than started a load — the event describes a call, not a transport.
+
+For `phase`, **the last phase that ran**, tabulated in §4. One mechanical rule covers all nine
+outcomes, success and failure alike, and it is the only reading under which `json.schema` does
+not need a per-case judgement: unwrap failures, the I36 domain check, and validator failures
+each terminate at a different phase, so `phase` is what discriminates the three origins the
+reason code deliberately collapses. `fetch` covers a file read as well as an http one; the
+union has no separate read phase and inventing one would be a contract change the design does
+not ask for.
+
+**Rejected.** Deferring the mapping to §12 as a U-item — honest, and the smaller move, but it
+leaves I38 half-testable and the mapping would be decided by whoever implemented it first,
+which is how a contract acquires a rule nobody chose. Also rejected: "the phase that caused the
+outcome", which reads better and is a judgement call on every `json.schema`. Also rejected:
+deleting `log` and `JsonEvent` as unbuilt surface — cheap today at 0.1.0 unpublished, but
+`10-design.md` §4.2 rests browser and server diagnostics on reason-code observability, and the
+event is the only path by which a consumer sees an outcome it did not itself await.
+
+**Not implemented here.** The core still calls no log port. I38 is what makes that a defect
+with a reproduction rather than an omission with no name, and it routes to `/fix`.
+
+**Reversibility:** cheap for I38 and the emission. Expensive for the `phase` mapping once a
+consumer logs against it, since the values become load-bearing in someone's dashboard.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

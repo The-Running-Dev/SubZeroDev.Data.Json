@@ -180,7 +180,8 @@ The runtime path, and the one every consumer sees.
 8. **Validate.** Per call, against the shared value. A validator that fails or throws ends
    with `json.schema`.
 9. **Assemble.** Meta is derived (§1.3), the result is assembled, and an event goes to the log
-   port if one was supplied. `load` returns; it does not throw and does not reject.
+   port if one was supplied — exactly one, carrying the phase that last ran, which
+   `20-contract.md` §4 and I38 own. `load` returns; it does not throw and does not reject.
 
 The call site is identical whether the source is `at: build` or `at: runtime`. That is the
 entire reason `at:` is a property of the source rather than an argument to the read: a payload
