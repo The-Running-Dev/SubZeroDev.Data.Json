@@ -1714,6 +1714,61 @@ rather than dismissed.
 
 ---
 
+## D63 — The source-map reader is two functions, and an absent file gets its own code (2026-08-08)
+
+**Context.** D62 put the YAML source-map reader in `/node` and left its signatures, its
+sync-or-async shape, and its error surface to `/contract`, with `20-contract.md` §12 U8 as where
+they land. Neither design document determines any of the three, so this is a decision rather than
+a transcription — the same position D52 and D53 were in.
+
+**Chosen.** Two exports in §9, and one new member of §10's closed error union:
+
+```ts
+export function parseSourceMap(text: string): SourceMap;
+export function readSourceMap(path: string): Promise<SourceMap>;
+```
+
+Both return the parsed `SourceMap` rather than a normalized one — normalization is the loader's,
+once, at construction (I41), and a reader returning anything else would put a second shape of the
+same configuration into the published surface. Both validate against §6 using the core's own entry
+check by relative import, never a second copy of the rules, which is D62's central constraint and
+is now checkable as I42. The reader adds the one check the core's cannot make, because the core's
+input is already typed: that the parsed document is an object carrying a `sources` record. Without
+it a file with no `sources` key puts a bare `TypeError` through `normalizeSourceMap`, which I24
+forbids.
+
+The reader is async, matching every other member of `/node`'s surface and the `FileSystemPort`; a
+sync read would be the only one in the package, and both callers D62 names — a server composition
+root and a build script — are already in async context where they read configuration.
+
+An absent or unreadable file is `config.unreadable`, not `config.invalidEntry`. The split is on
+whether the bytes arrived: `config.unreadable` means they did not, so nothing was parsed and no id
+can be named; `config.invalidEntry` means they did and their content is wrong, which includes
+unparseable YAML. Folding the two into one code would leave a caller reading the message to tell
+"create the file" from "fix a field", which is what I24's enumerated codes exist to avoid, and
+would leave §10.1's promise that the message names the id and the field false for a case that has
+neither. `parseSourceMap` cannot raise `config.unreadable`, being handed text.
+
+**Rejected.** A single `readSourceMap` and nothing else — the narrowest surface, and the
+recommendation put first, since adding the text half later is additive and costs nothing to defer.
+Chosen against deliberately: the validation half is worth being reachable and unit-testable from
+the published surface on day one rather than after a consumer asks, and a caller holding
+configuration bytes from an env var or a bundler's raw import validates through the same check
+instead of casting `unknown` to `SourceMap` by hand — which is narrowly the defect D62 rejected
+having no reader for. Also rejected: `parseSourceMap` alone, with each consumer reading its own
+bytes, which is narrower still, needs no filesystem, and would have made `config.unreadable`
+unnecessary — but it puts the read in two consumer repositories and makes the validated-map
+property hold only where they remember to call it. Also rejected: reusing `config.invalidEntry`
+for an absent file, which keeps the union closed at its current width and breaks no exhaustive
+switch, per the argument above.
+
+**Reversibility:** expensive. Both exports and the error-union member are published surface from
+the release that carries them; removing an export or a union member after publication is
+breaking, which is the asymmetry `10-design.md` §2 and D44 both rest on. Adding a third reader
+export later stays cheap.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -1731,16 +1786,24 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **I17 still says concurrent misses for one key issue one transport, and D61 decided
-  otherwise.** `20-contract.md` §12 U9, now settled by D61 and `10-design.md` §5: a
-  `cache: false` request has no cache key and so neither joins an in-flight load nor may be
-  joined by one, exactly as I16 already treats an ad-hoc source. The implementation in
-  `src/core/pipeline.ts` already does this, so no pipeline change is owed. Two things are:
-  I17 must narrow to concurrent **cache-eligible** misses, which is `/contract`'s; and the flag
-  needs the first test it has ever had, covering both directions — an opt-out read concurrent
-  with a normal read issues two transports, and neither observes the other. Until the test
-  exists the decision is enforced by nothing, which is how the divergence survived J11 in the
-  first place.
+- **`JsonRequest.cache: false` is exercised by no test anywhere in the tree.** D61 settled what
+  the flag means and the `/contract` pass after it landed the amendment — I17 now narrows to
+  concurrent **cache-eligible** misses, §3 defines the term, and I40 records that a
+  non-eligible read performs no lookup at all. `src/core/pipeline.ts` already behaves this way,
+  so no pipeline change is owed. What is owed is the test, covering both directions: an opt-out
+  read concurrent with a normal read of one id issues two transports, and neither observes the
+  other. Until it exists the decision is enforced by nothing, which is how the divergence
+  survived J11 in the first place — and under `00-brief.md` §7.1 an invariant whose test would
+  still pass with the invariant removed is not a contracted invariant.
+
+- **Nothing implements `/node`'s source-map reader, which `20-contract.md` §9 now declares.**
+  D62 and D63 close U8: `parseSourceMap(text)` and `readSourceMap(path)` are contracted, I42
+  constrains them to the core's own entry check rather than a second copy, and
+  `config.unreadable` has joined §10's closed union. No code in `src/node/` provides any of it —
+  `yaml.ts` carries only `convertYamlToJson`, which converts data files, not configuration. J6
+  is what needs them, and `30-slices.md` has no slice that writes them, so a slice is owed
+  before J6.4 can read a `sources.*.yml` at all. Whether that is a new `/node` slice or an
+  addition to an existing one is `/slices`', not this register's.
 
 - **`useJson().refetch()` can never return a fresh value against a `manual` cache policy.**
   `src/react/use-json.ts:75` implements `refetch` as another `loader.loadById(id)`, and
