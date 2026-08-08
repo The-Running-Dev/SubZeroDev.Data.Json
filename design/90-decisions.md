@@ -1786,15 +1786,6 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **Nothing implements `/node`'s source-map reader, which `20-contract.md` §9 now declares.**
-  D62 and D63 close U8: `parseSourceMap(text)` and `readSourceMap(path)` are contracted, I42
-  constrains them to the core's own entry check rather than a second copy, and
-  `config.unreadable` has joined §10's closed union. No code in `src/node/` provides any of it —
-  `yaml.ts` carries only `convertYamlToJson`, which converts data files, not configuration. J6
-  is what needs them, and `30-slices.md` has no slice that writes them, so a slice is owed
-  before J6.4 can read a `sources.*.yml` at all. Whether that is a new `/node` slice or an
-  addition to an existing one is `/slices`', not this register's.
-
 - **`useJson().refetch()` can never return a fresh value against a `manual` cache policy.**
   `src/react/use-json.ts:75` implements `refetch` as another `loader.loadById(id)`, and
   `loadById` synthesizes a request from the map entry with no cache opt-out. Under a `manual`
@@ -1813,6 +1804,10 @@ O27 were filed by the same command later the same day, as `The-Running-Dev/SubZe
 issues #29 and #30, and removed likewise. O28 was filed the same day, as issue #34, and removed
 likewise. The public/server gate content-scan item (D46) was filed on 2026-08-08 as issue #37
 and removed likewise. Track them all there. O24 is answered by D41 above.
+
+The `/node` source-map reader item (D62/D63, U8) is removed from this section on 2026-08-08
+without being filed separately: `/slices` had already answered it by adding J13, tracked as
+issue #60.
 
 O16 (issue #17) is answered by D39: the engine's serializer has been read and cross-checked,
 and the resolution it calls for is a `/contract` amendment, not a change to I13. That
