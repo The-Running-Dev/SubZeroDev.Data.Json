@@ -232,6 +232,7 @@ export type JsonErrorCode =
   | 'config.missingPort'
   | 'config.missingProvider'
   | 'config.invalidEntry'
+  | 'config.unreadable'
   | 'config.duplicateId'
   | 'preload.failed'
   | 'build.failed'
