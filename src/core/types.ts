@@ -230,6 +230,7 @@ export interface JsonFailure {
 
 export type JsonErrorCode =
   | 'config.missingPort'
+  | 'config.missingProvider'
   | 'config.invalidEntry'
   | 'config.duplicateId'
   | 'preload.failed'

@@ -74,8 +74,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/node/**/*.ts', 'src/build/**/*.ts', 'src/zod/**/*.ts', 'src/react/**/*.ts'],
-    ignores: ['src/**/*.test.ts'],
+    files: ['src/node/**/*.ts', 'src/build/**/*.ts', 'src/zod/**/*.ts', 'src/react/**/*.ts', 'src/react/**/*.tsx'],
+    ignores: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     rules: {
       // I37: the same esquery-on-the-source-string technique D50 established for I1, for the
       // same reason — `no-restricted-imports` normalizes `../` away, so a pattern written to
@@ -96,6 +96,20 @@ export default tseslint.config(
             ':matches(ExportNamedDeclaration, ExportAllDeclaration)[source.value=/^\\.\\.\\/(node|build|zod|react)\\//]',
           message: 'I37: a leaf re-exports from no sibling leaf — only the core and its own files.',
         },
+      ],
+    },
+  },
+  {
+    // J4.3: no Date.now or Math.random in /react's render path or a hook dependency array.
+    // Same guard-not-review technique as I1 (D50) — a lint rule that fails when removed, not a
+    // convention that rests on someone noticing in review.
+    files: ['src/react/**/*.ts', 'src/react/**/*.tsx'],
+    ignores: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        { object: 'Date', property: 'now', message: 'J4.3: no Date.now in /react — it belongs to a port, not a render path.' },
+        { object: 'Math', property: 'random', message: 'J4.3: no Math.random in /react — it belongs to a port, not a render path.' },
       ],
     },
   },

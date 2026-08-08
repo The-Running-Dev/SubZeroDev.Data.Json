@@ -58,3 +58,26 @@ describe('I37: leaf modules do not import siblings', () => {
     expect(errors).toEqual([]);
   });
 });
+
+/** J4.3 — no Date.now or Math.random in /react's render path or a hook dependency array. */
+async function j43Errors(code: string, filePath: string): Promise<readonly string[]> {
+  const [result] = await eslint.lintText(code, { filePath });
+  return (result?.messages ?? []).map((m) => m.message).filter((m) => m.includes('J4.3:'));
+}
+
+describe('J4.3: /react forbids Date.now and Math.random', () => {
+  it('rejects Date.now', async () => {
+    const errors = await j43Errors('export const t = Date.now();\n', 'src/react/j43-fixture.ts');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('rejects Math.random', async () => {
+    const errors = await j43Errors('export const r = Math.random();\n', 'src/react/j43-fixture.ts');
+    expect(errors).toHaveLength(1);
+  });
+
+  it('permits ordinary /react code', async () => {
+    const errors = await j43Errors("export const id = 'a';\n", 'src/react/j43-fixture.ts');
+    expect(errors).toEqual([]);
+  });
+});

@@ -19,10 +19,10 @@ Browser and server are co-equal consumers. The package is **read-only**.
 
 ## Status
 
-**The core and three environments are implemented.** J1 and J10–J12 (core), J2 (`/node`),
-J3 (`/build`), and J5 (`/zod`) are merged. `/react` is designed but not built: J4 was blocked
-on [`design/20-contract.md`](design/20-contract.md) §12 U1 and is now unblocked, the loader
-arriving through a `JsonProvider` context (`design/90-decisions.md` D53).
+**The core and four environments are implemented.** J1 and J10–J12 (core), J2 (`/node`),
+J3 (`/build`), J5 (`/zod`), and J4 (`/react`) are merged. `/react` was blocked on
+[`design/20-contract.md`](design/20-contract.md) §12 U1; the loader arrives through a
+`JsonProvider` context (`design/90-decisions.md` D53).
 `design/30-slices.md` carries the running order and what remains.
 
 ## The specs

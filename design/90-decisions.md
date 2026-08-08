@@ -1412,6 +1412,53 @@ comes from is a breaking change at every call site in every consumer.
 
 ---
 
+## D54 — `@testing-library/react`, `jsdom`, and the React DOM test runtime for `/react`'s tests (2026-08-08)
+
+**Context.** D2 records React as an optional peer dependency but says nothing about how
+`/react` gets tested; J4's test suite (`src/react/react.test.tsx`, `src/boundaries.test.ts`)
+needs a DOM and a way to render and interact with components, neither of which vitest supplies
+on its own.
+
+**Chosen.** `@testing-library/react` (rendering, `screen`, `renderHook`), `jsdom` (vitest's DOM
+environment for `src/react/**`), and `react`/`react-dom` themselves as devDependencies in
+addition to the existing peer-dependency declaration — the peer entry covers what a consumer
+installs, the devDependency covers what this repository's own test run needs.
+
+**Rejected.** `@testing-library/preact` or a hand-rolled shallow renderer — neither exercises
+real DOM commit/effect timing, which is exactly what J4.4's unmount-and-id-change tests need to
+be trustworthy. Also rejected: `happy-dom` in place of `jsdom` — no functional difference for
+this suite's needs, but `jsdom` is the environment the ecosystem's own examples and Testing
+Library's documentation assume, and there is no reason to diverge.
+
+**Reversibility:** cheap. Test-only dependencies, no published surface; swapping the DOM
+environment or the rendering library touches test files only.
+
+---
+
+## D55 — J4.4 amended: unmounting suppresses the update, it does not abort the request (2026-08-08)
+
+**Context.** PR #53 review: J4.4 read "unmounting aborts an in-flight request," but
+`JsonLoader.loadById` (§9) carries no cancellation token — `JsonRequest` (§3) was never given
+one, and D34 restricts `AbortController` to the core's own transport attempt, not to a signal a
+caller can hand in. `useJson` therefore cannot abort the underlying fetch or file read; it can
+only discard the result once it arrives, which is what the shipped `generation` counter in
+`src/react/use-json.ts` does.
+
+**Chosen.** Reword J4.4 to state what is actually guaranteed: unmounting, or `id` or the
+provider's loader changing, discards an in-flight call's result — no state update after
+unmount, and no stale `(id, loader)` pair's result rendered under a new one — without claiming
+the request itself is aborted.
+
+**Rejected.** Threading a cancellation signal through `JsonLoader.loadById` into the fetch port
+so the request is genuinely aborted. That is a new public interface not in `20-contract.md`
+(`AGENTS.md`, *Hard rules*) — it changes §9's signature and touches the core pipeline's fetch
+port, which is `/contract`'s call, not a fix folded into this slice.
+
+**Reversibility:** cheap. A wording correction; adding real cancellation later is additive to
+`JsonLoader`, not a breaking change to what J4 ships now.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

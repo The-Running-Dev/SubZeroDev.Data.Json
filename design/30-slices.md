@@ -398,7 +398,11 @@ and success states from the reason code rather than from a message string.
 - [ ] **J4.3** No `Date.now` or `Math.random` in a render path or a hook dependency array —
       the existing `HttpDataProvider` calls `Date.now()` inside a `useMemo` dependency and
       that is not reproduced.
-- [ ] **J4.4** Unmounting aborts an in-flight request; no state update after unmount.
+- [ ] **J4.4** Unmounting — or `id` or the provider's loader changing — discards an
+      in-flight call's result instead of committing it: no state update after unmount, and
+      no stale `(id, loader)` pair's result rendered under a new one. `JsonLoader.loadById`
+      (§9) carries no cancellation token, so the underlying request itself is not aborted
+      (D55).
 - [ ] **J4.5** The same call site compiles and behaves identically under either `at:` value
       (I9).
 - [ ] **J4.6** `useJson` and `JsonBoundary` rendered with no `JsonProvider` above them each
