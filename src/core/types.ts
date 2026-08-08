@@ -215,7 +215,6 @@ export interface JsonLock {
         readonly location: string;
         readonly digest: Digest;
         readonly bytes: number;
-        readonly resolvedAt: string;
       }
     >
   >;

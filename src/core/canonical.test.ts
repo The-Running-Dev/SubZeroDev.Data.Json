@@ -53,4 +53,28 @@ describe('canonicalize domain enforcement (I35)', () => {
   it('filters undefined-valued object keys rather than rejecting them', () => {
     expect(canonicalize({ a: 1, b: undefined })).toBe('{"a":1}');
   });
+
+  it('rejects a non-plain object rather than collapsing it to {} (D49)', () => {
+    // Each of these has no enumerable own keys, so the pre-D49 record walk emitted '{}' for
+    // all four — one serialization, one digest, four different values (I5).
+    expect(() => canonicalize(new Date(0))).toThrow(TypeError);
+    expect(() => canonicalize(new Map([['a', 1]]))).toThrow(TypeError);
+    expect(() => canonicalize(new Set([1]))).toThrow(TypeError);
+    expect(() => canonicalize(/x/)).toThrow(TypeError);
+  });
+
+  it('rejects a class instance, at depth as well as at the root (D49)', () => {
+    class Point {
+      constructor(readonly x: number) {}
+    }
+    expect(() => canonicalize(new Point(1))).toThrow(TypeError);
+    expect(() => canonicalize({ a: { b: new Point(1) } })).toThrow(TypeError);
+  });
+
+  it('still accepts a null-prototype record — it is a plain record (D49)', () => {
+    const bare = Object.create(null) as Record<string, unknown>;
+    bare['b'] = 2;
+    bare['a'] = 1;
+    expect(canonicalize(bare)).toBe('{"a":1,"b":2}');
+  });
 });

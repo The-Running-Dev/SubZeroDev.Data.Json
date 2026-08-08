@@ -1159,6 +1159,130 @@ large part of why D6 chose two files over one.
 
 ---
 
+## D47 — The lockfile carries no timestamp; `resolvedAt` is removed (2026-08-08)
+
+**Context.** `/reconcile` against the implemented tree found `20-contract.md` contradicting
+itself. I21 requires two builds over unchanged bytes to produce a byte-identical `json.lock`;
+§7 requires a per-entry `resolvedAt` ISO 8601 stamp. `prefetch` implemented §7, so I21 has
+never held since J3 merged. The J3.3 test regexed `resolvedAt` out before comparing and kept
+the title "byte-identical lockfile", so the gate reported green throughout.
+
+The lockfile is committed, and §11 says why: so builds are comparable. A field derived from a
+clock makes every rebuild a diff, which defeats the only property the file is committed for —
+`10-design.md` §3.2 step 4's "a real diff means real change". §7 itself called `resolvedAt`
+"informational only — never an input", so nothing reads it and nothing can break.
+
+**Chosen.** Remove `resolvedAt` from `JsonLock` in §7, §11, `types.ts`, and `prefetch.ts`. I21
+is restated as byte-identity of the whole file with nothing excluded, and as a standing ban on
+any clock-derived lock field. J3.3 now compares both files whole; J3.2 becomes a key-set
+assertion that fails if `resolvedAt` or a successor is reintroduced.
+
+**Rejected.** Narrowing I21 to "byte-identical apart from `resolvedAt`" and retitling the test.
+Doc-and-test-only and the cheapest to apply, but it contracts the churn rather than fixing it:
+every rebuild keeps dirtying a committed file, and §3.2 step 4 stays false. Also rejected:
+moving the stamp to a single top-level `JsonLock.resolvedAt`, which shrinks the diff to one
+line and still costs a contract amendment without buying the invariant.
+
+**Reversibility:** cheap now, expensive later. 0.1.0 is unpublished, so removing a field costs
+nothing today; after publication a lockfile shape change invalidates every committed lockfile
+in every consumer.
+
+---
+
+## D48 — A supplied `fetch` port requires a `schedule` port, map or no map (2026-08-08)
+
+**Context.** I2 says `load()` never throws and never rejects. It did. `20-contract.md` §3 gives
+an ad-hoc `JsonRequest.source` "the default timeout", which `pipeline.ts` implements as a
+hard-coded 10 000 ms, and the timeout is started by calling `ports.schedule!(timeoutMs)` outside
+any `try`. I6 checks ports against the entries *in the map*, and an ad-hoc source is by
+definition not one — so a loader with no http entry has no reason to hold a `schedule` port, and
+an ad-hoc http read on it rejected with a bare `TypeError`. Reproduced before deciding: two
+probes, one with a `fetch` port and one with no ports at all, both rejected out of `load()`.
+
+**Chosen.** Two changes that together close it. I6 gains one deliberately map-independent
+clause — a supplied `fetch` port requires a `schedule` port alongside it, whether or not any
+entry declares http. And `httpAttempt` guards the call rather than asserting it: an absent
+`schedule` port means no timer for that attempt. The guard is only reachable on a loader holding
+neither port, where the attempt fails on the absent `fetch` a few lines later and returns
+`json.transport`. I2 becomes true in every case.
+
+The widening contradicts I6's own "covers exactly the entries in the map supplied, never a wider
+set", and that is stated in I6 rather than left to be found. The clause is what the sentence did
+not anticipate: a request can name a source the map never mentions.
+
+**Rejected.** The guard alone, with I6 untouched — smallest diff and I6's scoping clause
+survives intact, but it leaves an ad-hoc http read silently unbounded on any loader that happens
+not to hold a schedule port, which is a worse default than the one being fixed. Also rejected:
+returning `json.unresolved` for the missing port, which refuses a source the caller explicitly
+handed in over a port they were never told to supply. Also rejected: requiring `schedule`
+unconditionally at construction — J1.3 and I33's second half both require
+`createJsonLoader(map)` with `ports` omitted entirely to work over inline entries.
+
+**Reversibility:** cheap. One construction-time check and one guarded call; no persisted format
+and no result shape changes.
+
+---
+
+## D49 — The canonical serializer rejects any object that is not a plain record (2026-08-08)
+
+**Context.** I35 says the serializer "accepts exactly `CanonicalValue`", whose object arm is a
+plain record. `canonicalize` treated everything `typeof === 'object'` as one, so a `Date`, `Map`,
+`Set`, `RegExp`, or class instance — none of which has enumerable own keys — serialized to `{}`.
+Four different values, one serialization, one digest, which is I5's "two that differ produce
+different digests" broken silently. Reachable today through a hand-written `inline` entry, whose
+`data` §3 explicitly binds to the same domain, and guaranteed once a YAML reader lands: D41
+records that `js-yaml`'s `DEFAULT_SCHEMA` resolves a bare timestamp to a `Date`, and
+`Docs-Template/config/projects.yml` has 27+ of them.
+
+**Chosen.** Reject on prototype: accept arrays and objects whose prototype is `Object.prototype`
+or `null`; throw on everything else. The pipeline already turns that throw into `json.schema`
+(D40, I36), so a silent `{}` becomes a named failure before the value can be digested, frozen,
+or cached.
+
+This may make the package stricter than the engine's serializer, which I13 pins it to. D39 read
+that module at `f7d8f59` and recorded no non-plain-object vector, and D39 is explicit that its
+behaviour is not to be guessed at again — so whether the engine rejects a `Date` is unknown.
+Stricter is the safe direction under D39's own deciding argument: J9 swaps this implementation
+in beneath the engine's determinism acceptance test, and *permissive* is the failure mode that
+turns a swap into a silent weakening. I13 is amended to allow rejecting strictly more, never
+less, with the unknown named rather than assumed.
+
+**Rejected.** Rewording I35 to promise rejection only for its enumerated cases and dropping
+"exactly" — doc-only and no behaviour change, but it makes a `Date` reaching a digest as `{}`
+contracted behaviour and leaves I5 quietly false. Also rejected: deferring to the U8 YAML
+reader, which leaves I35 literally false in the meantime and lands the fix in the slice least
+able to argue about the core's value domain.
+
+**Reversibility:** cheap. A pure function and one prototype check; every value in the
+parsed-JSON domain is unaffected, so no digest in that domain changes.
+
+---
+
+## D50 — The determinism guard bans bare specifiers, not just Node builtins (2026-08-08)
+
+**Context.** I1 says the core imports no module and that this is "enforced by the determinism
+guard in CI, not by review". The guard, copied from the engine at J1.8, restricted only `fs`,
+`node:fs*`, and `node:*`. `import { load } from 'js-yaml'` inside `src/core/` passed lint clean,
+so the zero-import claim rested on review after all — the one thing the sentence says it does
+not. Nothing violated it; the enforcement claim was what was false.
+
+**Chosen.** Ban every non-relative specifier in `src/core/**`, across static imports, dynamic
+`import()`, and re-exports. Implemented with `no-restricted-syntax` and an esquery regex on the
+source string rather than `no-restricted-imports`: that rule's gitignore-style matcher
+normalizes `./` away, so a negation written to spare the core's own siblings spares `js-yaml`
+too — attempted first, and it rejected all seven of `pipeline.ts`'s relative imports. Verified
+by probe rather than asserted: all three specifier shapes rejected, clean tree passes.
+
+**Rejected.** Softening I1's enforcement clause to "guard covers globals; zero-dependency rests
+on `package.json` review" — doc-only, but I1 is the invariant the GameEngine consumer is being
+sold, and downgrading it to partly-by-review is the opposite of what J9 needs. Also rejected:
+leaving it, on the grounds that nothing violates it — a guard with a hole nobody has walked
+through is still a guard that reports green on the first core dependency added.
+
+**Reversibility:** cheap. Lint configuration only.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

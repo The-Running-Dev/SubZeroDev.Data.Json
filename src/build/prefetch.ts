@@ -20,7 +20,9 @@ interface Resolved {
 /**
  * `10-design.md` §3.2: resolves every `at: build` entry with a digest, writes nothing until
  * every one of them has resolved (I20, D17), then writes one artifact per source and the
- * lockfile — both through the canonical serializer, in sorted-id order (I21). `at: runtime`
+ * lockfile — both through the canonical serializer, in sorted-id order (I21). The lockfile
+ * carries nothing time-varying (D47), so two builds over unchanged bytes write the same bytes.
+ * `at: runtime`
  * entries are read but never resolved (I8) and pass into `runtimeMap` unchanged; every
  * resolved `at: build` entry becomes `{ inline: <resolved data> }` there (I33, D24).
  */
@@ -73,7 +75,6 @@ export async function prefetch(map: SourceMap, outDir: string, ports: JsonPorts)
   await mkdir(outDir, { recursive: true });
 
   const sortedIds = [...resolved.keys()].sort();
-  const resolvedAt = new Date().toISOString();
   const lockSources: Record<SourceId, JsonLock['sources'][string]> = {};
 
   for (const id of sortedIds) {
@@ -83,7 +84,6 @@ export async function prefetch(map: SourceMap, outDir: string, ports: JsonPorts)
       location: entry.location,
       digest: entry.digest,
       bytes: entry.bytes,
-      resolvedAt,
     };
   }
 

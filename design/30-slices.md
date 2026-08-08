@@ -325,8 +325,8 @@ I30, I33
       requested, writes one artifact per source into `outDir`, and returns
       `PrefetchOutput { lock, runtimeMap }`. Exactly one source map is read per pass — public
       or server, never both (`10-design.md` §3.2).
-- [ ] **J3.2** The lockfile matches §7. `resolvedAt` is written and read by nothing, and no
-      behaviour anywhere depends on it.
+- [ ] **J3.2** The lockfile matches §7. Each entry carries exactly `id`, `digest`, and
+      `location` — no `resolvedAt` or other clock-derived field (D47).
 - [ ] **J3.3** Two builds over unchanged remote bytes produce identical digests **and a
       byte-identical lockfile**, with entries emitted in sorted-id order through the canonical
       serializer (I21). Changed bytes produce a changed digest and a diff that means something.
