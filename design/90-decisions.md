@@ -1283,6 +1283,40 @@ through is still a guard that reports green on the first core dependency added.
 
 ---
 
+## D51 — The leaf half of the star graph becomes I37, guarded and tested (2026-08-08)
+
+**Context.** `10-design.md` §2 draws the module graph as a star and then names its own failure
+mode: "the only way to break it is a leaf importing a leaf. That is the thing to guard against,
+and it has a cheap guard: the core's out-degree is zero and each leaf's in-degree from siblings
+is zero, both checkable mechanically." Only the first half was ever written into the contract.
+I1 covers the core; the leaf half had no invariant and no rule, and `eslint.config.js` scoped
+every rule to `src/core/**`. `/build` importing `/node` — the edge D19 forbids because it is
+how `FileSystemPort` would acquire a write member — was review-enforced. The tree was clean, so
+nothing was broken; as with D50, the enforcement claim was what was false.
+
+**Chosen.** I37, and a second lint block over `src/{node,build,zod,react}/**` banning a
+relative reach into a sibling leaf across static imports, dynamic `import()`, and re-exports.
+`../core/` is deliberately outside the alternation: that edge is what the star graph is made
+of. Test files are outside the guard — a fixture is not a shipped edge, and a `/build` test
+composing `nodePorts` is legitimate.
+
+Also chosen, and new relative to I1: **the guard has a test.** `src/boundaries.test.ts` runs
+ESLint over violating fixtures for all three specifier shapes and over two legal imports.
+Verified by reverting: with the alternation neutered, three of five fail. I1 has no equivalent
+and never has, which is the mechanism by which the hole D50 closed went unnoticed for as long
+as it did — a rule nothing exercises reports green whether or not it works.
+
+**Rejected.** Leaving it uncontracted, on the grounds the tree is clean — that is the argument
+D50 rejected two entries ago, and it ages badly the first time `/react` lands and wants
+something `/node` already has. Also rejected: routing it to `/design` as a question about
+whether the star graph binds — D2 and D19 already settled that it does, so there was no
+question, only a missing transcription. Also rejected: `no-restricted-imports` patterns, for
+D50's reason.
+
+**Reversibility:** cheap. One invariant row, one lint block, one test file.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

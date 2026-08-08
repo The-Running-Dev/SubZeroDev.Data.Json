@@ -13,7 +13,9 @@ D45, and D46 each named as belonging here, and opens U7 and U8 for the two gaps
 `30-slices.md` surfaced that no design document determines. A second 2026-08-08 pass — the
 first `/reconcile` run against a tree with all four modules implemented — lands D47 (§7, §11,
 I21), D48 (I6), D49 (I35, I13), and D50 (I1). Each corrects an invariant the implementation
-had shown to be false as written, not a change of intent.
+had shown to be false as written, not a change of intent. A `/contract` re-derivation later
+the same day appends I37 as D51: `10-design.md` §2 names a two-part guard on the module
+graph and only the core half had ever been written down.
 
 ## 1. Result
 
@@ -334,7 +336,8 @@ Anything derived from a clock belongs in build logs, not here.
 ## 8. Invariants
 
 Each invariant is testable, and the test must fail when the invariant is removed
-(`00-brief.md` §7.1). I1–I13 keep their ids; I14 onward were appended in the 2026-08-07 pass.
+(`00-brief.md` §7.1). I1–I13 keep their ids; I14–I36 were appended in the 2026-08-07 pass, and
+I37 in the 2026-08-08 re-derivation.
 
 | | Invariant | Owner |
 |---|---|---|
@@ -374,6 +377,7 @@ Each invariant is testable, and the test must fail when the invariant is removed
 | **I34** | An `unwrap: 'subzerodev'` envelope whose `success` is `false` yields `json.schema`, with the envelope's own error text in `message`. `ok: true` with `data: undefined` is unreachable. | core |
 | **I35** | The canonical serializer accepts exactly `CanonicalValue` (§3). At any depth it filters `undefined`-valued object keys, and rejects a non-finite number, a bare `undefined`, a `bigint`, a symbol, a function, and **any object that is not a plain record** — one whose prototype is neither `Object.prototype` nor `null`, such as a `Date`, `Map`, `Set`, `RegExp`, or class instance (D49). Rejection is a throw. The serializer is pure: it reaches no port and no ambient global. | core |
 | **I36** | The post-unwrap value is checked against I35's domain on every load — before it is frozen, before it is cached, and independently of `digest`. A value outside the domain yields `json.schema` and writes nothing to the cache. No cache entry ever holds an out-of-domain value, so I32's memoized digest never throws, and `digest` never changes a result's `ok`. | core |
+| **I37** | No leaf module imports another leaf. A specifier in `src/node/`, `src/build/`, `src/zod/`, or `src/react/` is relative within its own directory, a relative reach into `src/core/`, or a bare specifier for a dependency that module declares — never a reach into a sibling leaf, across static imports, dynamic `import()`, and re-exports. `/build` in particular never imports `/node`, which is what keeps `FileSystemPort` read-only (D19). I1 is the core's out-degree and this is each leaf's in-degree from its siblings; together they are the whole of `10-design.md` §2's star graph, and neither half rests on review (D50, D51). Test files are outside the guard: a fixture is not a shipped edge. | node, build, zod, react |
 
 ## 9. Subpath Exports
 
