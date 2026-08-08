@@ -144,7 +144,7 @@ describe('useJson / JsonBoundary — no JsonProvider (J4.6)', () => {
 });
 
 describe('nested JsonProvider (J4.6)', () => {
-  it('resolves to the nearest provider, and two loaders serve their own caches', async () => {
+  it('resolves to the nearest provider', async () => {
     const outerFetch = vi.fn(async () => new Response(JSON.stringify('outer-value'), { status: 200 }));
     const innerFetch = vi.fn(async () => new Response(JSON.stringify('inner-value'), { status: 200 }));
     const mapFor = (): SourceMap => ({
@@ -173,6 +173,39 @@ describe('nested JsonProvider (J4.6)', () => {
     expect(innerFetch).toHaveBeenCalledTimes(1);
     expect(inner.stats().misses).toBe(1);
     expect(outer.stats().hits + outer.stats().misses).toBe(0);
+  });
+
+  it('two loaders in one tree serve their own caches', async () => {
+    const outerFetch = vi.fn(async () => new Response(JSON.stringify('outer-value'), { status: 200 }));
+    const innerFetch = vi.fn(async () => new Response(JSON.stringify('inner-value'), { status: 200 }));
+    const mapFor = (): SourceMap => ({
+      version: 1,
+      sources: { a: { at: 'runtime', url: 'https://example.test/a', cache: 'manual' } },
+    });
+    const schedule = (ms: number) => ({ promise: new Promise<void>((r) => setTimeout(r, ms)), cancel: () => {} });
+    const outer = createJsonLoader(mapFor(), { fetch: outerFetch, schedule });
+    const inner = createJsonLoader(mapFor(), { fetch: innerFetch, schedule });
+
+    function Reader() {
+      const r = useJson<string>('a');
+      return <div>{r.ok ? r.data : 'loading'}</div>;
+    }
+
+    render(
+      <JsonProvider loader={outer}>
+        <Reader />
+        <JsonProvider loader={inner}>
+          <Reader />
+        </JsonProvider>
+      </JsonProvider>,
+    );
+
+    const rendered = await screen.findAllByText(/-value$/);
+    expect(rendered.map((el) => el.textContent).sort()).toEqual(['inner-value', 'outer-value']);
+    expect(outerFetch).toHaveBeenCalledTimes(1);
+    expect(innerFetch).toHaveBeenCalledTimes(1);
+    expect(outer.stats().misses).toBe(1);
+    expect(inner.stats().misses).toBe(1);
   });
 });
 
