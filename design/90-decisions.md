@@ -1562,6 +1562,74 @@ name costs one tag delete and one re-push.
 
 ---
 
+## D59 — What makes a cache lookup a hit becomes I40 (2026-08-08)
+
+**Context.** `10-design.md` §3.1 step 2 states the hit condition for all three cache policies:
+`manual` "always hits until invalidated", `ttl` "hits while the clock says the entry is inside
+its window", `mtime` "hits while `(path, mtimeMs, size)` is unchanged". `20-contract.md` typed
+`CachePolicy`, `HttpCacheSpec`, `FileCacheSpec`, and `CacheEntry.storedAt` and then said what
+none of them *do*: I25 covers the mtime stamp's capture order and that a null stamp is never a
+hit, I16 covers the source comparison, and no invariant anywhere states when an entry is
+served. The behaviour is implemented in `checkCache` and tested — `src/core/cache.test.ts`
+carries "'manual' hits until invalidate" and "'ttl' hits inside the window and misses outside
+it" — so this is a transcription gap, not a defect. Under `00-brief.md` §7.1 an invariant owes
+a test; the inverse case, a tested behaviour no invariant owns, is a test that can be deleted
+with no document objecting, which is the same hole D52 named for `ports.log`.
+
+**Chosen.** I40 states all three conditions, each as a conjunct with I16's source comparison
+rather than instead of it. I12 gains a second sentence for the other thing §1.3 determines and
+the contract never carried: a hit's `meta.bytes` and `meta.location` are the entry's stored
+values, not values re-derived on this call.
+
+One point in I40 is finer than the design's own words. "Inside its window" does not settle the
+boundary; I40 makes it half-open — `clock() - storedAt < ttlMs`, so an entry exactly at
+`ttlMs` has expired. That is what `checkCache` implements and what the J10 test asserts, so
+the choice ratifies shipped, tested behaviour rather than setting new policy, but it is named
+here because it is the one clause a reader could not have derived from `10-design.md` alone.
+
+**Rejected.** Leaving the policies uncontracted on the grounds that the code is correct and
+tested — which is exactly the argument D50 and D51 rejected twice. A behaviour with a test but
+no invariant is enforced by whoever remembers the test's title, and the ttl boundary in
+particular is a one-character change no document would have caught. Also rejected: writing the
+conditions into `10-design.md` §3.1 instead, which is where they already are — the gap is that
+the contract, the artifact an implementation is checked against, never restated them.
+
+**Reversibility:** cheap for the transcription. Moderate for the ttl boundary once a consumer
+depends on the expiry edge, though no consumer can today.
+
+---
+
+## D60 — The source map is normalized once, at construction (I41) (2026-08-08)
+
+**Context.** `10-design.md` §1.2 gives two entities an explicit lifecycle the contract never
+carried. The source map is "read once, at build or at loader construction. Never reloaded — a
+changed file means a new loader." The normalized source is "derived once at construction from
+the entry or a bare string; never re-derived per read." `createJsonLoader` implements both —
+`normalizeSourceMap` builds a separate `Map` of normalized entries and `runPipeline` reads only
+from it — but no invariant said so, so nothing stopped a later change from re-reading the
+caller's `SourceMap` per load and nothing would have failed if it had.
+
+**Chosen.** I41, scoped to exactly what the design determines and what the implementation
+actually guarantees: the set of resolvable ids, and each entry's normalized source, `unwrap`,
+cache policy, timeout, retry, and `maxBytes`, are fixed at construction.
+
+**Deliberately not claimed:** that the `SourceMap` is deep-copied. An inline entry's `data` is
+held by reference, so mutating the contents of that value before its first load is observable.
+The design determines normalization-once, not a defensive copy, and I41 is worded so that it
+is true rather than aspirational — a broader "mutating the map after construction changes
+nothing" would have been false on that one path and would have failed the `00-brief.md` §7.1
+test-must-fail-when-removed standard by being untestable as stated.
+
+**Rejected.** Stating the invariant over the whole `SourceMap` including inline payloads, which
+reads better and covers the case a caller is most likely to get wrong, but would contract a
+deep copy nobody implements and D21's freeze already covers once the value has been loaded
+once. Also rejected: leaving it uncontracted because the implementation is correct — D50's
+argument again.
+
+**Reversibility:** cheap. One invariant row over behaviour that already holds.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -1578,6 +1646,17 @@ A staging area, not a home: an item stays here only until `/track` files it as a
 then it is removed. New items go here as bullets, each starting with a **bolded lead sentence**
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
+
+- **A `cache: false` request neither joins nor is joined by an in-flight load, and I17 says
+  otherwise.** `20-contract.md` §12 U9. `JsonRequest.cache?: false` is declared in §3 and
+  implemented in `src/core/pipeline.ts` — both the http and the file path take the opt-out
+  branch before reaching the in-flight map — so an opt-out read concurrent with a normal read
+  of the same id issues two transports, where I17 says concurrent misses for one key issue
+  one. The flag is exercised by no test anywhere in `src/`, which is how the divergence
+  survived J11 and every pass since. `10-design.md` settles neither side: §5 keys the in-flight
+  map on the cache key and never says whether a caller outside the cache has one. Needs a
+  decision on which of the two is wrong before it needs code; either way it also needs the
+  first test the flag has ever had.
 
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this section. O26 and
