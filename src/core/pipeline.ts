@@ -342,7 +342,13 @@ async function httpAttempt(
   // absent port there threw straight out of `load()`, which I2 forbids outright; running that
   // one attempt unbounded is the only outcome that keeps I2 absolute. The attempt fails on
   // `ports.fetch!` a few lines below regardless, so nothing is actually left unbounded.
-  const wait = timeoutMs > 0 && ports.schedule ? ports.schedule(timeoutMs) : null;
+  let wait: ReturnType<NonNullable<typeof ports.schedule>> | null = null;
+  try {
+    wait = timeoutMs > 0 && ports.schedule ? ports.schedule(timeoutMs) : null;
+  } catch {
+    // A port that throws on setup is treated as absent: run unbounded rather than
+    // propagating a synchronous throw out of load(), which I2 forbids.
+  }
   let timedOut = false;
   let settled = false;
   wait?.promise
@@ -355,7 +361,7 @@ async function httpAttempt(
 
   function finish(): void {
     settled = true;
-    wait?.cancel();
+    try { wait?.cancel(); } catch { /* port teardown throw must not change the load outcome */ }
   }
 
   let response: Response;

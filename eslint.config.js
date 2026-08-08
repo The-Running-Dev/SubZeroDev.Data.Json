@@ -55,7 +55,7 @@ export default tseslint.config(
           message: 'I1: the core imports no module — only its own relative siblings.',
         },
         {
-          selector: 'ImportExpression[source.value=/^[^.]/]',
+          selector: 'ImportExpression:not([source.value=/^\./])',
           message: 'I1: the core imports no module — only its own relative siblings.',
         },
         {
