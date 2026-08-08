@@ -2,7 +2,7 @@
 
 ## 1. What This Is
 
-A source-agnostic JSON loader for TypeScript, published as `@subzerodev/data-json`.
+A source-agnostic JSON loader for TypeScript, published as `subzerodev-data-json`.
 
 One call site reads a named JSON payload. Where that payload comes from — a bundled
 import, a file on disk, an HTTP endpoint — and *when* it is resolved — at build time or
@@ -84,7 +84,7 @@ Binding. Out of scope even when it looks like a small addition:
 
 ## 6. MVP
 
-`@subzerodev/data-json` at 0.1.0, with:
+`subzerodev-data-json` at 0.1.0, with:
 
 - `src/core` — `load()`, the source union, `JsonResult`, reason codes, ports, cache,
   canonical serialization, digest. Zero dependencies, clock-free, guard-clean.
