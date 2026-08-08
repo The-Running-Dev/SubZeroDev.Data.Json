@@ -1,6 +1,6 @@
 # SubZeroDev.Data.Json
 
-A source-agnostic JSON loader for TypeScript, published as `@subzerodev/data-json`. One call
+A source-agnostic JSON loader for TypeScript, published as `subzerodev-data-json`. One call
 site reads a named JSON payload; where it comes from (bundled import, file on disk, HTTP
 endpoint) and when it resolves (build time or runtime) are declared in configuration, not at
 the call site. Browser and server are co-equal consumers. **Read-only** — no create, update,

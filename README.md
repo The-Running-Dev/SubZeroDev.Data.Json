@@ -1,6 +1,6 @@
 # SubZeroDev.Data.Json
 
-A source-agnostic JSON loader for TypeScript, published as `@subzerodev/data-json`.
+A source-agnostic JSON loader for TypeScript, published as `subzerodev-data-json`.
 
 One call site reads a named JSON payload. Where it comes from — a bundled import, a file on
 disk, an HTTP endpoint — and *when* it resolves — at build time or at runtime — are
@@ -9,7 +9,7 @@ declared in configuration, not at the call site.
 Browser and server are co-equal consumers. The package is **read-only**.
 
 ```
-@subzerodev/data-json
+subzerodev-data-json
   .          core     load · sources · result · reasons · cache · canonical · digest
   /node      Node     file source (mtime-cached) · yaml→json CLI · GET-only express mount
   /react     React    JsonProvider · useJson · JsonBoundary

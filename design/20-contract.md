@@ -3,7 +3,7 @@
 Exact types and invariants. Rationale lives in `10-design.md`; this file is the reference
 an implementation is checked against.
 
-All types are exported from the core (`@subzerodev/data-json`) unless a subpath is named.
+All types are exported from the core (`subzerodev-data-json`) unless a subpath is named.
 
 Sections §1–§9 keep their numbering and invariant ids from the 2026-08-06 draft.
 §10–§12 are appended. Amendments made in the 2026-08-07 pass are logged as
@@ -408,7 +408,7 @@ I37 and I38 in the 2026-08-08 re-derivation.
 ## 9. Subpath Exports
 
 ```ts
-// @subzerodev/data-json/node
+// subzerodev-data-json/node
 export function nodeFileSystem(): FileSystemPort;
 export function nodePorts(overrides?: Partial<JsonPorts>): JsonPorts;
 
@@ -423,7 +423,7 @@ export function jsonRouter(loader: JsonLoader, ids: readonly SourceId[]): JsonRo
 export function envelope<T>(data: T): { readonly success: true; readonly data: T };
 export function convertYamlToJson(from: string, to: string): Promise<number>;    // CLI core
 
-// @subzerodev/data-json/react
+// subzerodev-data-json/react
 export interface JsonProviderProps {
   readonly loader: JsonLoader;
   readonly children: ReactNode;
@@ -443,10 +443,10 @@ export function JsonBoundary(props: {
   readonly children: ReactNode;
 }): ReactElement;
 
-// @subzerodev/data-json/zod
+// subzerodev-data-json/zod
 export function zodValidator<T>(schema: ZodType<T>): Validator<T>;
 
-// @subzerodev/data-json/build
+// subzerodev-data-json/build
 export interface PrefetchOutput {
   readonly lock: JsonLock;
   readonly runtimeMap: SourceMap;   // at: build entries rewritten to inline (I33)

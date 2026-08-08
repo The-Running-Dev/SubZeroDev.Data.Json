@@ -1487,6 +1487,8 @@ implementation was already built the other way.
 
 ## D57 — Publish `@subzerodev/data-json` to the npm registry, tag-triggered (2026-08-08)
 
+**Superseded by D58** — the scope named here never had working publish access; see D58.
+
 **Context.** Issue #34 (O28), filed while selecting J8: the package has never been published
 — `npm view @subzerodev/data-json` 404s — and had no installable form for another
 repository. `dist/` was gitignored with no `files` allowlist and no `prepublishOnly`/`prepare`
@@ -1516,6 +1518,47 @@ pushed and no publish has run.
 unpublishing a version once other packages may depend on it (a 72-hour grace window only), so
 a first publish, once it happens, is effectively permanent; the workflow is reviewed before
 the first tag is pushed rather than trusted on the first run.
+
+---
+
+## D58 — Drop the `@subzerodev` scope; publish unscoped as `subzerodev-data-json` (2026-08-08)
+
+**Context.** D57's `NPM_TOKEN` was added and a `v0.1.0` tag pushed to exercise
+`publish.yml`. The run authenticated and built provenance successfully, then failed: `npm
+publish` returned `404 Not Found — PUT .../@subzerodev%2fdata-json`. The `subzerodev` npm
+org does exist (`registry.npmjs.org/-/org/subzerodev/user` returns an owner), but the
+account behind `NPM_TOKEN` is not a member of it — npm returns 404 rather than 403 for a
+non-member to avoid confirming the scope's existence. The same scope, on the same org, has
+never successfully published anywhere: `@subzerodev/plugins-github`
+(`SubZeroDev.Plugins.GitHub`) has an equivalent workflow that has never run, and
+`@subzerodev/container-manager-common` (`Container-Manager-Common`) is unpublished too. The
+one package in this account's repositories that is actually live —
+`subzerodev-platform-ui-landing-page` (`SubZeroDev.Platform.UI.LandingPage`, versions
+0.1.0–0.3.0 on the public registry) — is unscoped.
+
+**Chosen.** Drop the scope. `@subzerodev/data-json` becomes `subzerodev-data-json`,
+following the same kebab-cased-repo-name pattern the landing-page package already uses. The
+registry, the `NPM_TOKEN` secret, and `publish.yml`'s mechanics are otherwise unchanged from
+D57 — an unscoped first publish needs no org membership, only that the name be unclaimed
+(`npm view subzerodev-data-json` 404s, confirmed unclaimed).
+
+**Rejected.** GitHub Packages under `@the-running-dev/data-json`, matching
+`SubZeroDev.GameEngine`'s `@the-running-dev/game-engine`, authenticated with the repo's own
+`GITHUB_TOKEN` instead of a separate npm credential. This is a proven working pattern in a
+sibling repository and was the first fix proposed, but was set aside once the unscoped
+npmjs.com route — matching an already-*live* package rather than a wired-but-never-run
+workflow — was raised as the closer precedent. Also rejected: fixing `subzerodev` org
+membership for the `NPM_TOKEN` account on npmjs.org directly, which would have kept D57's
+scoped name but requires an npmjs.com account-level change (adding a member to the org)
+that, like D57's original token creation, an agent session cannot perform.
+
+**Amends.** D1's published name (`@subzerodev/data-json`) and D57's publish mechanics
+description, wherever both name the scoped form. Neither entry is rewritten; this record is
+the reason the name in the tree now reads `subzerodev-data-json`.
+
+**Reversibility:** cheap now — the `v0.1.0` tag pushed under D57 never successfully
+published anything, so no consumer depends on the old scoped name. Re-tagging under the new
+name costs one tag delete and one re-push.
 
 ---
 
