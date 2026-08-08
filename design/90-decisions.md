@@ -1317,6 +1317,49 @@ D50's reason.
 
 ---
 
+## D52 — One event per `load`, and `phase` is the last phase that ran (2026-08-08)
+
+**Context.** `10-design.md` §1.2 gives the Event entity a lifecycle — "fire-and-forget; nothing
+may depend on delivery" — and §3.1 step 9 sends one to the log port. `20-contract.md` §4 typed
+`JsonEvent` and `JsonPorts.log` and then obliged nothing: no invariant named either, so under
+`00-brief.md` §7.1 no test was owed, and `ports.log` is called nowhere in `src/`. A typed port
+that no invariant governs is surface the implementation is free to skip, and it did.
+
+The design determines that an event is emitted and that delivery is not load-bearing. It does
+**not** determine which of `phase`'s six values a given outcome carries, and `/contract` may
+not invent that. Raised as a fork; the choice taken was to settle it here rather than defer it
+to a `/design` pass, this session already being at that tier.
+
+**Chosen.** I38 for what the design settles: exactly one event per completed `load`, emitted
+after assembly and before `load` resolves, carrying that call's own `id`, `reason`, and `meta`,
+and a throwing `log` port changing neither the result nor the cache (I2 admits no exception).
+Every id resolved through `loadById`, `loadMany`, `preload`, and `prefetch` emits, and so does
+a caller that joined rather than started a load — the event describes a call, not a transport.
+
+For `phase`, **the last phase that ran**, tabulated in §4. One mechanical rule covers all nine
+outcomes, success and failure alike, and it is the only reading under which `json.schema` does
+not need a per-case judgement: unwrap failures, the I36 domain check, and validator failures
+each terminate at a different phase, so `phase` is what discriminates the three origins the
+reason code deliberately collapses. `fetch` covers a file read as well as an http one; the
+union has no separate read phase and inventing one would be a contract change the design does
+not ask for.
+
+**Rejected.** Deferring the mapping to §12 as a U-item — honest, and the smaller move, but it
+leaves I38 half-testable and the mapping would be decided by whoever implemented it first,
+which is how a contract acquires a rule nobody chose. Also rejected: "the phase that caused the
+outcome", which reads better and is a judgement call on every `json.schema`. Also rejected:
+deleting `log` and `JsonEvent` as unbuilt surface — cheap today at 0.1.0 unpublished, but
+`10-design.md` §4.2 rests browser and server diagnostics on reason-code observability, and the
+event is the only path by which a consumer sees an outcome it did not itself await.
+
+**Not implemented here.** The core still calls no log port. I38 is what makes that a defect
+with a reproduction rather than an omission with no name, and it routes to `/fix`.
+
+**Reversibility:** cheap for I38 and the emission. Expensive for the `phase` mapping once a
+consumer logs against it, since the values become load-bearing in someone's dashboard.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

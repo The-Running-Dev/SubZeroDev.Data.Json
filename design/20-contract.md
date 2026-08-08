@@ -14,8 +14,11 @@ D45, and D46 each named as belonging here, and opens U7 and U8 for the two gaps
 first `/reconcile` run against a tree with all four modules implemented — lands D47 (§7, §11,
 I21), D48 (I6), D49 (I35, I13), and D50 (I1). Each corrects an invariant the implementation
 had shown to be false as written, not a change of intent. A `/contract` re-derivation later
-the same day appends I37 as D51: `10-design.md` §2 names a two-part guard on the module
-graph and only the core half had ever been written down.
+the same day appends two invariants the design determined and this file had never carried:
+I37 as D51, because `10-design.md` §2 names a two-part guard on the module graph and only the
+core half had ever been written down, and I38 as D52, because §3.1 step 9 emits an event that
+nothing here obliged. D52 also settles §4's `phase` mapping, which the design does not
+determine — the one thing in this pass that is a design decision rather than a transcription.
 
 ## 1. Result
 
@@ -209,6 +212,24 @@ epoch and deletes only its own keys.
 There is no hash port. The digest is computed by the core's own SHA-256 so that one
 payload has one digest regardless of who loads it (I5, I13).
 
+`JsonEvent.phase` is **the last phase that ran** before the result was assembled. Stating it
+that way makes it mechanical, where "the phase that caused the outcome" would be a judgement
+call on every `json.schema` (D52):
+
+| Phase | Runs at | Terminal for |
+|---|---|---|
+| `resolve` | `10-design.md` §3.1 step 1 | `json.unresolved` |
+| `cache` | Step 2, on a hit | `json.ok` from the cache line where no validator ran |
+| `fetch` | Step 4, for a `file` source as well as an `http` one — the union has no separate read phase | `json.transport`, `json.status`, `json.timeout`, `json.notFound`, `json.tooLarge` |
+| `parse` | Step 5 | `json.parse` |
+| `unwrap` | Steps 6–7, I36's domain check included | `json.schema` from an unwrap or from the domain check; `json.ok` on a fresh load where no validator ran |
+| `validate` | Step 8 | `json.schema` from a validator; `json.ok` wherever a validator ran |
+
+Steps 3 and 9 have no phase: joining is not work on the value, and assembly is where the event
+is emitted rather than a phase it could report. A joined caller therefore reports **its own**
+last phase — `validate` where it supplied a validator, `unwrap` otherwise — which is the same
+per-call rather than per-entry split I15 draws for `validated`.
+
 ## 5. Loader
 
 ```ts
@@ -337,7 +358,7 @@ Anything derived from a clock belongs in build logs, not here.
 
 Each invariant is testable, and the test must fail when the invariant is removed
 (`00-brief.md` §7.1). I1–I13 keep their ids; I14–I36 were appended in the 2026-08-07 pass, and
-I37 in the 2026-08-08 re-derivation.
+I37 and I38 in the 2026-08-08 re-derivation.
 
 | | Invariant | Owner |
 |---|---|---|
@@ -378,6 +399,7 @@ I37 in the 2026-08-08 re-derivation.
 | **I35** | The canonical serializer accepts exactly `CanonicalValue` (§3). At any depth it filters `undefined`-valued object keys, and rejects a non-finite number, a bare `undefined`, a `bigint`, a symbol, a function, and **any object that is not a plain record** — one whose prototype is neither `Object.prototype` nor `null`, such as a `Date`, `Map`, `Set`, `RegExp`, or class instance (D49). Rejection is a throw. The serializer is pure: it reaches no port and no ambient global. | core |
 | **I36** | The post-unwrap value is checked against I35's domain on every load — before it is frozen, before it is cached, and independently of `digest`. A value outside the domain yields `json.schema` and writes nothing to the cache. No cache entry ever holds an out-of-domain value, so I32's memoized digest never throws, and `digest` never changes a result's `ok`. | core |
 | **I37** | No leaf module imports another leaf. A specifier in `src/node/`, `src/build/`, `src/zod/`, or `src/react/` is relative within its own directory, a relative reach into `src/core/`, or a bare specifier for a dependency that module declares — never a reach into a sibling leaf, across static imports, dynamic `import()`, and re-exports. `/build` in particular never imports `/node`, which is what keeps `FileSystemPort` read-only (D19). I1 is the core's out-degree and this is each leaf's in-degree from its siblings; together they are the whole of `10-design.md` §2's star graph, and neither half rests on review (D50, D51). Test files are outside the guard: a fixture is not a shipped edge. | node, build, zod, react |
+| **I38** | A supplied `log` port receives exactly one `JsonEvent` per `load` call that completes — including each id resolved through `loadById`, `loadMany`, `preload`, and `prefetch`, and including a caller that joined an in-flight load rather than starting one. The event is emitted after the result is assembled and before `load` resolves, and carries that result's own `id`, `reason`, and `meta`, with `phase` as §4 defines it. Delivery is fire-and-forget: a `log` port that throws changes neither the result nor the cache and never makes `load` throw (I2). No other member emits. | core |
 
 ## 9. Subpath Exports
 
