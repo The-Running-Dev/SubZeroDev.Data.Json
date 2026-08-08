@@ -268,12 +268,14 @@ column names J1 and J3 for both; under this ordering the http half lands here
 - [ ] **J12.8** Each of I18, I20, I27, I30 has a test that fails when that invariant is
       removed, driven by a fake fetch port and a fake scheduler — no test waits on real
       elapsed time.
-- [ ] **J12.9** With the core complete, `node harness/run.mjs` runs against the real core and
-      every probe that still reproduces is accounted for — as a genuine regression, or as a
-      finding the design accepted. F9 (redirects, U2) and F11 (fan-out, U5) are expected to
-      keep reproducing and are not regressions; F10 rested on U4 and no longer has that
-      excuse, so a probe that still reproduces after J1.5 is a genuine regression. See
-      *Regression corpus* below for why this check belongs at the end of this slice.
+- [ ] **J12.9** With the core complete, `node harness/run-real.mjs` runs the same probes
+      against the real, built core and every probe that still reproduces is accounted for —
+      as a genuine regression, or as a finding the design accepted. `harness/run.mjs` stays
+      on the reproduction (`90-decisions.md` D56) — it is what *Regression corpus* below and
+      `harness/README.md` mean by "the harness". F9 (redirects, U2) and F11 (fan-out, U5) are
+      expected to keep reproducing and are not regressions; F10 rested on U4 and no longer
+      has that excuse, so a probe that still reproduces after J1.5 is a genuine regression.
+      See *Regression corpus* below for why this check belongs at the end of this slice.
 
 **Out of scope:** redirect policy, including whether redirects are followed and what happens
 to a declared header across an origin change — §12 U2 is undetermined and this slice records
@@ -618,8 +620,9 @@ no install). It is not `src/` and nothing in it moves there (`harness/README.md`
 The probes run against `harness/core.mjs`, a reproduction — so a green harness is evidence
 about the reproduction, not about the shipped core. Once the core slices land, a probe that
 **keeps** reproducing against the real core means an amendment did not land. That check is
-**J12.9**, and it is stated as a criterion rather than as prose here because a check that
-lives only in a narrative section is a check nobody runs. Probes for findings still open — F9
+**J12.9** (`node harness/run-real.mjs`, D56), and it is stated as a criterion rather than as
+prose here because a check that lives only in a narrative section is a check nobody runs.
+Probes for findings still open — F9
 (redirects, U2) and F11 (fan-out, U5) — are expected to keep reproducing and are not
 regressions. F10 (untestable) rested on U4 and no longer has that excuse: D39 read the
 cross-check target, so a probe that still reproduces after J1.5 is a genuine regression.

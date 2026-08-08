@@ -1459,6 +1459,32 @@ port, which is `/contract`'s call, not a fix folded into this slice.
 
 ---
 
+## D56 — J12.9 names `harness/run-real.mjs`, not `harness/run.mjs` (2026-08-08)
+
+**Context.** PR #55's review (`copilot-pull-request-reviewer`) flagged that J12.9 as written
+named `node harness/run.mjs` as the command that runs the probes against the real, built
+core — but the PR left `run.mjs` untouched as the reproduction runner and added
+`run-real.mjs` as a new, additive command for that check, contradicting the criterion's own
+wording. The conflict was internal to this document: the *Regression corpus* section two
+screens below J12.9, `harness/README.md`, and this file's own `## Open` closing note all
+already say `harness/run.mjs` stays the reproduction, so J12.9's wording was the one entry
+out of step with the rest of the design's stated intent.
+
+**Chosen.** J12.9 now names `harness/run-real.mjs`. `harness/run.mjs` keeps meaning what
+`harness/README.md` says it means — the reproduction, unmoved, evidence about the
+reproduction and not about the shipped core.
+
+**Rejected.** Rewriting `harness/run.mjs` in place to point at the real core, which would
+satisfy J12.9's literal text but break the regression corpus: a green `run.mjs` would stop
+being evidence that a red-team finding still reproduces against the *documents as written*,
+which is the property `## Regression corpus` and `harness/README.md` exist to preserve, and
+the one a later probe addition depends on staying stable.
+
+**Reversibility:** cheap. A naming correction with no behavioural change; PR #55's own
+implementation was already built the other way.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
