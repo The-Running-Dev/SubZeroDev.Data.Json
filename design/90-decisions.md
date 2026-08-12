@@ -1769,6 +1769,26 @@ export later stays cheap.
 
 ---
 
+## D64 — Release the source-map reader as 0.2.0 (2026-08-13)
+
+**Context.** `subzerodev-data-json@0.1.0` is the first immutable package release. J13 adds
+`parseSourceMap` and `readSourceMap` to the published `/node` subpath, which UI4 needs to read
+its public YAML source map without owning a second parser. The addition does not alter any
+existing export or behaviour, but it does expand the package's public API.
+
+**Chosen.** Release the first version containing those exports as `0.2.0`. In this pre-1.0
+package, an additive public API is a minor release, giving consumers an explicit immutable
+boundary for the new capability instead of making it appear as a patch-level correction.
+
+**Rejected.** `0.1.1` — smaller, but it describes the public-surface expansion as a bug fix and
+makes the dependency boundary UI4 requires less legible. Waiting for another unrelated feature
+would delay the first consumer despite the complete, tested J13 implementation already on main.
+
+**Reversibility:** cheap before publication; after `0.2.0` is published, corrections require a
+new immutable version.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
