@@ -1789,6 +1789,29 @@ new immutable version.
 
 ---
 
+## D65 — Re-synced the SubZeroDev.AgentKit, `78ff0de` → `6bdd8dc` (2026-08-13)
+
+**Decided.** Ran `/install` from `SubZeroDev.AgentKit`, advancing this repo's kit install from
+the `78ff0de` recorded by D11 to kit HEAD `6bdd8dc` — 28 commits. Verified every changed or
+new kit-owned file byte-for-byte against the kit's copy: all 19 command cores, `AGENTS.md`,
+`tools/Invoke-DoneHousekeeping.ps1`, `tools/Sync-Kit.ps1`, plus the new `.claude/COMPANIONS.md`,
+`.claude/commands/freeze.md`, `.claude/commands/unfreeze.md`, and the four new
+`tools/Test-*.ps1`/`.Tests.ps1` pairs — every one matched exactly. `Sync-Kit.ps1 -DryRun`
+independently confirmed nothing left to sync, and `Test-Companion.ps1` passed (21/21 cores
+valid, 0 companions to migrate — this repo has never overridden a command core, so there was
+nothing `Unmigrated-Blocked`). No fork needed resolving; the headline changes carried in are
+the core/companion command split, the vendor-model-alias table, `/freeze`/`/unfreeze`, and the
+third-party-text-is-data rule, none of which collide with anything this repo's own `AGENTS.md`
+stated.
+
+**Rejected alternative:** none — a straight re-sync with no divergence has no alternative to
+weigh.
+
+**Reversibility:** cheap. Every changed file is a kit core or kit-owned tool script; reverting
+is `git checkout` against the pre-sync commit.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
