@@ -1812,6 +1812,36 @@ is `git checkout` against the pre-sync commit.
 
 ---
 
+## D66 — `10-design.md` §7's resolved questions become pointers, not restatements (2026-08-13)
+
+**Context.** The `/design` pass of 2026-08-13 rewrote `10-design.md` in full. Its §7 carried Q1,
+Q2, and Q3 as block quotes of the original questions plus their rejected alternatives, roughly
+fifty lines, justified in the document's own words as keeping the rejected options "because the
+alternatives each one rejected are the reason the shipped answer is the shipped answer — the same
+argument that keeps rejected options in `90-decisions.md`."
+
+That argument points at this file, which is where those alternatives already live: Q1's ambient
+timer and dropped-timeout options are D23 and D48, Q2's read-time-failure option is D30, Q3's
+optional-peer and parser-port options are D41. `AGENTS.md` *Single ownership* forbids the second
+copy — and the copies had already begun to diverge, since D48's narrowing of Q2 was appended as a
+paragraph below the quoted question rather than into it.
+
+**Chosen.** §7 keeps Q4, the one question still open, in full. Q1–Q3 become one line each naming
+what was answered and the decision that answers it, with the one substantive amendment since
+(D48's map-independent clause) stated inline because it changes what Q2's answer *is*.
+
+**Rejected.** Keeping the block quotes, which is the status quo and costs nothing to leave alone
+— but it is a restatement of this file inside the document that outranks it only on architecture,
+and a reader who finds the two disagreeing has no rule for which wins. Also rejected: deleting
+Q1–Q3 outright, which is what "resolved" would normally mean and is the smallest §7; it loses the
+trail from a question a reader may still be carrying to the entry that closed it, and the command
+that owns this file treats a resolved question as shrinking rather than vanishing.
+
+**Reversibility:** cheap. The removed text is in this file's own D23, D30, D41, and D48, and in
+git history for the prose form.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
