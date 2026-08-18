@@ -1,35 +1,19 @@
 # Design — SubZeroDev.Data.Json
 
-Architecture, data model, and failure semantics. Exact types live in `20-contract.md`;
-this file explains why they have the shape they do and settles the things the types alone
-do not say. Decisions and their reversal costs are in `90-decisions.md`.
+Architecture, data model, and failure semantics. Exact types live in `20-contract.md`; this
+file explains why they have the shape they do and settles the things the types alone do not
+say. Decisions and their reversal costs are in `90-decisions.md`, which is also where the
+revision history of this document lives — it is not repeated here.
 
-Where this document decides something the contract does not yet state, the decision is
-logged and named here as needing to land in `20-contract.md`. No capability this file names is
-missing from the contract: §7's Q1, Q2 and Q3 have all landed, and Q4 is a question about an
-external repository rather than a gap in this one. **Nothing here contradicts the contract.**
-§5's narrowing of I17 did until the `/contract` pass of 2026-08-08 landed it, which is why the
-narrowing is still argued at length where it arises rather than merely asserted.
-
-The 2026-08-08 revision settles the two things `20-contract.md` §12 recorded as undetermined
-here and closes both: **U9**, whether a cache opt-out participates in single-flight (§5,
-`90-decisions.md` D61), and **U8**, which module turns a YAML source map into a `SourceMap`
-(§2, D62). Each needed a corresponding `20-contract.md` amendment, and the `/contract` pass
-after this revision made both: I17 narrowed to concurrent cache-eligible misses with I40
-extended alongside it for the first, and `parseSourceMap` and `readSourceMap` declared in §9
-under I42 for the second, with the signatures this file left open decided as D63. The same
-pass carries in
-four things the contract had determined more precisely than this file said: the half-open ttl
-boundary (§3.1), a hit's stored `location` (§1.3), the size bound as a boundary failure of its
-own (§4.1), and the full port requirement at construction (§4.1). U7 is *not* reopened: it
-reads like a gap in §2 but D44 routed it to `/contract`, to be answered against J9.1's stated
-requirement rather than against whatever a slice exported, and no new evidence has arrived.
-§2 states the surface rule that decision rests on; the signatures stay `/contract`'s.
+**Nothing here contradicts the contract.** Where this document decides something, the decision
+is logged; where the contract has since determined something more precisely than this file
+said, the contract's reading is the one written here.
 
 ## 1. Data model
 
-The system has ten entities. Two are persisted, one is persisted configuration, and the
-rest exist only for the duration of a call or the life of a loader.
+The system has eleven entities. Two are persisted configuration a human writes — the source
+map and the entries in it. Three are build output, regenerable from that configuration. The
+remaining six exist only for the duration of a call or the life of a loader.
 
 ### 1.1 Identity
 
@@ -61,15 +45,16 @@ joined against the cache at all.
 | **Source entry** | Persisted, a row in a map | The consuming repository | Its id | Created and edited by hand, in review |
 | **Normalized source** | In-memory | The loader | Its entry's id | Derived once at construction from the entry or a bare string; never re-derived per read |
 | **Request** | In-memory, per call | The caller | None — a value | Constructed by the caller, or synthesized from a map entry by `loadById` |
-| **Cache entry** | In-memory, per loader | The loader | Its source id | Written on success, replaced by a later success, dropped by `invalidate`. Never persisted, never shared between loaders or processes |
+| **Cache entry** | In-memory, per loader | The loader | Its source id | Written on success, replaced by a later success, dropped by `invalidate` or by the loader's `dispose` (§1.5). Never persisted, never shared between loaders or processes |
 | **Meta** | In-memory, per result | The loader | None | Wholly derived (§1.3) |
 | **Result** | In-memory, per call | The caller once returned | None | Discarded by the caller |
 | **Event** | In-memory, transient | The log port | None | Fire-and-forget; nothing may depend on delivery |
 | **Prefetched artifact** | Persisted, one JSON file per `at: build` source | The build | Its source id | Rewritten by every build; regenerable |
+| **Derived runtime map** | Returned by the build, persisted by whoever it is handed to | The build | The map it was derived from | Emitted by every build; regenerable. Never hand-edited (§3.2) |
 | **Lockfile** | Persisted, one per build target | The build | The build | Rewritten by every build; committed so builds are comparable |
 
-The source map is the only persisted thing a human writes. The other two persisted things
-are build output and are regenerable from it.
+The source map is the only persisted thing a human writes. The three build outputs are
+regenerable from it, and a build rewrites all of them wholesale rather than merging.
 
 ### 1.3 Derived fields
 
@@ -124,6 +109,26 @@ values would make mutability depend on a cache policy the call site cannot see, 
 site's behaviour must not change when a source's configuration does (`20-contract.md` I9 is
 the same principle applied to `at:`).
 
+### 1.5 The loader's own lifetime
+
+A loader owns two things that outlive a call: its cache entries, and any filesystem watchers
+it registered. Both end together, and they end only when whoever constructed the loader says
+so (`90-decisions.md` D31, `20-contract.md` I26).
+
+**A watch is registered lazily**, on the first successful read of a file entry declaring an
+`mtime` policy — never at construction. Registering eagerly opens a watcher per file entry
+whether or not anything reads it, and forces a not-yet-existing path to be handled before any
+read has been attempted. The cost of lazy registration is a first-read side effect, which is
+the cheaper of the two.
+
+**`dispose` is the only unwind**, and it is the loader's, not a component's. It unsubscribes
+every watcher and drops this loader's cache keys, so a disposed loader holds no process open.
+`/react`'s provider accepts a loader and never constructs one, and therefore never disposes
+one (`90-decisions.md` D53): a component that did would unwind state belonging to a
+composition root that may still be using it. This is why §5's "the cache is per loader" stays
+true under React — nesting two providers nests two independent caches, and neither can end the
+other's.
+
 ## 2. Module boundaries
 
 Five modules. The graph is a **star**: every module depends on the core, no module depends on
@@ -138,7 +143,9 @@ a sibling, and the core depends on nothing at all.
 
 Acyclic by construction, and the only way to break it is a leaf importing a leaf. That is the
 thing to guard against, and it has a cheap guard: the core's out-degree is zero and each
-leaf's in-degree from siblings is zero, both checkable mechanically.
+leaf's in-degree from siblings is zero, both checkable mechanically — and both now checked,
+the second as `20-contract.md` I37 with a test that fails when the rule is neutered
+(`90-decisions.md` D50, D51). A guard nothing exercises reports green whether or not it works.
 
 | Module | Owns | Depends on | Exposes |
 |---|---|---|---|
@@ -146,7 +153,7 @@ leaf's in-degree from siblings is zero, both checkable mechanically.
 | **node** | The Node filesystem port, the YAML→JSON conversion the CLI wraps, **reading a source map from YAML**, the GET-only HTTP mount, the response envelope | core, the Node runtime, a YAML parser (§7 Q3) | A filesystem port, a composed port set, a source-map reader, a router, the envelope and its producer |
 | **react** | The hook and boundary bindings, mount and unmount lifecycle, and the context a call site reaches its loader through | core, React as an optional peer | `JsonProvider`, `useJson`, `JsonBoundary` |
 | **zod** | The adapter from a zod schema to the core's validator seam | core, zod as an optional peer | A validator factory |
-| **build** | Build-time resolution, artifact and lockfile emission, the public/server gate | core, the Node runtime | Prefetch, and the bundle assertion |
+| **build** | Build-time resolution, artifact, runtime-map and lockfile emission, the public/server gate | core, the Node runtime | Prefetch, and the bundle assertion |
 
 **`/build` does not depend on `/node`.** It reads through whatever ports it is handed and
 writes with the Node runtime directly. That keeps the filesystem port read-only — the package
@@ -167,29 +174,30 @@ map must satisfy — `at` present, `cache` required on http and file entries and
 inline, one of `url`/`path`/`inline`, `version: 1` — is already enforced where a loader is
 constructed, and a reader with its own copy is two implementations of one rule with nothing
 saying which is authoritative. Reading is `/node`'s; deciding what a valid entry is stays the
-core's. That is also what makes `20-contract.md` §10.1's existing "`/node` when reading YAML"
-clause true rather than a raiser that does not exist — the code path is `/node`'s, the
-judgement behind the error is the core's.
+core's, and `20-contract.md` I42 is what makes that checkable rather than a claim. The reader
+adds exactly one check the core's cannot, because the core's input is already typed: that the
+parsed document is an object carrying a `sources` record at all (D63).
 
 This costs the core no public surface. A leaf reaching relatively into `src/core/` is what I37
 permits and the star graph is built on, so the shared check is reached the way `/build` already
-reaches canonical serialization — internally. The narrow-surface rule above and the reader
+reaches canonical serialization — internally. The narrow-surface rule below and the reader
 decision here do not pull against each other.
 
 **The core's public surface is deliberately narrower than what the core owns.** It owns
 canonical serialization and the digest; it exposes neither. That gap is not an oversight, it is
 the default direction: adding an export later is additive, and removing one after publication
-is not — and 0.1.0 is now published, so the asymmetry has teeth it did not have when D44 first
-argued it. Canonical serialization becomes public when J9.1 states what the GameEngine actually
-needs to import, and `20-contract.md` §12 U7 is where that lands. This section fixes the rule;
-it does not pick the functions.
+is not — and the package is published, so the asymmetry has teeth it did not have when D44
+first argued it. Canonical serialization becomes public when J9.1 states what the GameEngine
+actually needs to import, and `20-contract.md` §12 U7 is where that lands. This section fixes
+the rule; it does not pick the functions.
 
 **Isomorphism is a boundary property, and it is proven rather than asserted.** The core
 reaches for no filesystem, no fetch, no window, no process, no wall clock, no randomness.
 Environment arrives only through ports. That is what makes the core testable without a
 network and importable by the GameEngine without tripping its determinism guard, and the same
 guard runs against the core in CI — a constraint that is not enforced regresses on the first
-convenient ambient call.
+convenient ambient call, and the guard therefore bans every non-relative specifier rather than
+an enumerated list of runtime modules (D50).
 
 It is also why the browser and the server migrations land as **one gate**. A core proven
 against one environment first accretes that environment's assumptions, and the isomorphism
@@ -245,37 +253,63 @@ The runtime path, and the one every consumer sees.
 
 The call site is identical whether the source is `at: build` or `at: runtime`. That is the
 entire reason `at:` is a property of the source rather than an argument to the read: a payload
-can move between them in review, without touching code (`20-contract.md` I9).
+can move between them in review, without touching code (`20-contract.md` I9). No step above
+branches on `at`, and §3.2 is what makes that possible.
 
 ### 3.2 A build resolves the declared build-time sources
 
-1. Read exactly one source map — public or server, never both in one pass.
-2. Resolve every `at: build` entry, concurrently, with digests requested. `at: runtime`
-   entries are not touched (`20-contract.md` I8).
+1. **Read exactly one source map** — public or server, never both in one pass. A build reads
+   its map through `/node`'s reader, reached from the composition root (§2), not through a
+   parser of its own.
+2. **Resolve every `at: build` entry**, concurrently, with digests requested, over a loader
+   constructed on **that half of the map alone**. `at: runtime` entries are not touched
+   (`20-contract.md` I8), and scoping the loader to the half it resolves is what keeps the
+   construction-time port check honest at this boundary: a build demands exactly the ports the
+   entries it resolves need, and never a port for an entry it is guaranteed never to reach
+   (`90-decisions.md` D43).
 3. **Nothing is written until everything resolves.** A failure in any entry fails the build
    and reports *every* failed id, not the first (`90-decisions.md` D17).
-4. Write one artifact per source, then the lockfile — sorted by id, serialized through the
+4. **Write one artifact per source, then the lockfile** — sorted by id, serialized through the
    canonical serializer, so two builds over unchanged bytes produce a byte-identical file
-   and a real diff means real change.
-5. **Run the public/server gate last**, after everything that could write into the public
+   and a real diff means real change. No field of the lockfile is derived from a clock; one
+   that was would make every rebuild a diff and destroy the only property the file is committed
+   for (`90-decisions.md` D47).
+5. **Emit the derived runtime map.** Every `at: build` entry is rewritten to an inline entry
+   carrying the resolved data, and the result is handed back for the consumer to persist and
+   import. **This is the handoff**, and it is the reason §3.1 has no `at` branch
+   (`90-decisions.md` D24, `20-contract.md` I33): a runtime loader constructed from this map
+   resolves those ids with no port at all, because there is nothing left to transport. The
+   rewritten entry keeps only what still governs an inline value — everything describing a
+   transport that no longer happens is dropped.
+6. **Run the public/server gate last**, after everything that could write into the public
    output directory. A gate that runs before the last writer proves nothing.
 
 ### 3.3 A composition root refuses to boot
 
-A server calls preload in its startup with the ids it cannot serve without. Every id resolves
-concurrently; the call rejects if any failed, naming all of them. This is the only member of
-the loader that rejects, and it exists because a process that starts and then 500s on first
-request is worse than one that refuses to start (`90-decisions.md` D7).
+A server reads its source map, constructs a loader, and calls preload in its startup with the
+ids it cannot serve without. Every id resolves concurrently; the call rejects if any failed,
+naming all of them. This is the only member of the loader that rejects, and it exists because a
+process that starts and then 500s on first request is worse than one that refuses to start
+(`90-decisions.md` D7).
+
+The guarantee is scoped to the moment it was called (`90-decisions.md` D38). `preload` performs
+a full load per id and writes the cache under each entry's declared policy; it does not pin
+those entries against later expiry. A process that boots is one whose configuration and
+upstreams were reachable at boot, and declaring a ttl is declaring that a later failure is
+acceptable.
 
 There is a fourth, minor path: **a watched file changes**, and the filesystem port's callback
 invalidates that id's cache entry in process. It retires the external file watcher
 `Docs-Template` runs today and ties invalidation to the cache that would otherwise go stale.
+§1.5 owns when that watcher is registered and what ends it.
 
 ## 4. Failure modes
 
 `load` never throws and never rejects. Every outcome is a result carrying a reason code from a
 closed vocabulary, and control flow branches on the code, never on the message
-(`90-decisions.md` D8).
+(`90-decisions.md` D8). Everything the package *does* throw is one error type carrying an
+enumerated code, so a composition root can branch on why boot failed without parsing a string
+(`90-decisions.md` D26).
 
 This replaces three conventions coexisting in one codebase today: throw, write to a store and
 continue, and warn-then-substitute-defaults. A consumer currently cannot distinguish "the
@@ -299,9 +333,17 @@ second loud.
 | Unwrap | Declared envelope absent, or a caller-supplied unwrap throws | Shape check, or a catch | No retry | `json.schema` | None |
 | Validate | Validator returns not-ok, or throws | Return value, or a catch | No retry | `json.schema`, `validated` false | Cache entry stands — the value is fine, this caller's schema is not |
 | Resolve | Id absent from the map, or a malformed request | Lookup | Nothing to attempt | `json.unresolved` | None |
-| Construction | A supplied entry needs a port that was not passed: `fetch` for an http entry, `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for a timeout or a non-zero delay. One clause is map-independent — a supplied `fetch` requires a `schedule` alongside it, because an ad-hoc request can name an http URL the map never mentions | Construction-time check, scoped to the entries in the map supplied | Throws. Never a silent downgrade | An exception at loader construction, naming the entry and the port | No loader exists |
+| Configuration read | The file is absent, is a directory, or the read failed | The read rejects | Throws. Nothing was parsed, so no id can be named | `config.unreadable`, naming the path | No map, and therefore no loader |
+| Configuration read | The bytes arrived but their content is wrong — unparseable YAML, no `sources` record, or any per-entry fault the core already names | The core's own entry check, applied by the reader (§2) | Throws | `config.invalidEntry`, naming the id and field, or the file where the fault sits above the entries | No map, and therefore no loader |
+| Construction | A supplied entry needs a port that was not passed: `fetch` for an http entry, `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for a timeout or a non-zero delay. One clause is map-independent — a supplied `fetch` requires a `schedule` alongside it, because an ad-hoc request can name an http URL the map never mentions | Construction-time check, scoped to the entries in the map supplied | Throws. Never a silent downgrade | `config.missingPort`, naming the entry and the port | No loader exists |
+| Render | `useJson` or `JsonBoundary` rendered with no `JsonProvider` above it | Context lookup | Throws. There is no default loader to fall back to | `config.missingProvider` | None. No load was attempted, so I2 is untouched |
 | Build | Any `at: build` source fails | Aggregate of §3.2 | Fails the build, writes nothing | Every failed id, named | Previous build output, untouched |
 | Build gate | A server-file entry reached the public output | Scan of the built output | Fails the build | The offending id and file | Build output present but rejected |
+
+The two configuration-read rows split on **whether the bytes arrived** (`90-decisions.md` D63).
+That is the distinction a caller acts on: one means create the file or fix the path, the other
+means fix a field. Folding them into one code would put that difference back into the message
+string, which is what the enumerated codes exist to retire.
 
 **A failed load neither populates nor evicts the cache.** A stale entry is not a hit, but it is
 not deleted either — nothing is gained by destroying a value that a later policy change or a
@@ -317,7 +359,9 @@ The reason code is the interface; the surface is per module.
 - **Server.** The router maps reason to status and **never forwards the upstream status**
   (`90-decisions.md` D20): unresolved and not-found to 404; timeout and transport to 504;
   status, parse, schema, and too-large to 502 (D33). Forwarding an upstream 404 as the API's
-  own 404 tells a client "your route is wrong" when the truth is "our upstream is wrong".
+  own 404 tells a client "your route is wrong" when the truth is "our upstream is wrong". Its
+  own failure envelope carries the same field the core's unwrap reads, so a data-json client
+  reading a data-json server gets the real message rather than a generic substitute (D45).
 - **Build.** Failures are named by id at the point of resolution, before anything is written.
 
 ### 4.3 Retry and partial failure
@@ -378,8 +422,7 @@ does not let it turn on a cache policy it cannot see.
 
 This narrows `20-contract.md` I17, which as originally written admitted no exception: the
 guarantee is over concurrent **cache-eligible** misses, a term §3 there now defines, and I40
-carries the other half — a read outside it performs no lookup at all. What the narrowing still
-owes is the flag's first test, in both directions.
+carries the other half — a read outside it performs no lookup at all.
 
 **Invalidation during a load.** Each cache key carries a generation counter, incremented by
 `invalidate`. A load stamps the generation it started under and compares before storing; a
@@ -394,6 +437,9 @@ Ordering that must hold:
 
 - Cache lookup happens **before** transport; the in-flight join happens **after** the lookup
   misses. Reversing either reintroduces the duplicate-fetch case.
+- An `mtime` stamp is captured **before** the read, never after. Before is the safe direction:
+  the stamp may be older than the bytes, which costs one redundant re-read, where after may be
+  newer than the bytes, which serves stale content under a fresh stamp (`90-decisions.md` D36).
 - A cache hit can return a digest without re-transporting. It is **memoized onto the entry**
   rather than computed ahead of the store: a value is frozen and written with `digest: null`,
   and the first request that asks for one computes it from the canonical form and writes it
@@ -405,9 +451,11 @@ Ordering that must hold:
   nondeterministic under concurrency — cannot change the bytes.
 
 What is not shared: **the cache is per loader, per process.** Two loaders in one process share
-nothing. Two server workers share nothing. There is no cross-process cache and no distributed
-invalidation, which is a non-goal (`00-brief.md` §5.4) and the reason invalidation can be a
-counter rather than a protocol.
+nothing — enforced by namespacing each loader's keys with its own instance identity, so even an
+injected `CacheStore` reaching two loaders cannot cross-serve (`90-decisions.md` D35). Two
+server workers share nothing. There is no cross-process cache and no distributed invalidation,
+which is a non-goal (`00-brief.md` §5.4) and the reason invalidation can be a counter rather
+than a protocol.
 
 Concurrency in eager resolution is **unbounded**, because a source map is hand-written
 configuration and is small by construction. That is an assumption, not a guarantee, and it is
@@ -415,7 +463,7 @@ recorded in the open register rather than defended here.
 
 ## 6. Alternatives considered
 
-Seven choices where a different option was genuinely viable. The earlier five — package shape,
+Eight choices where a different option was genuinely viable. The earlier five — package shape,
 `at:` with no default, the two-file config split, result-not-throw, and the deliberate
 serializer duplication — are settled in `90-decisions.md` D2, D3, D6, D8, and D9 and are not
 reopened.
@@ -434,6 +482,16 @@ a payload moves from a bundled import to an enveloped endpoint — the exact mig
 package is for. Also rejected: the post-validation value, which ties a payload's identity to
 the consumer's schema, so two consumers of one payload compute two different digests and the
 lockfile stops meaning anything.
+
+**How a build-time payload reaches a runtime call site.** Chosen: the build emits a derived
+source map in which every `at: build` entry has become an inline entry carrying the resolved
+data (§3.2 step 5). Rejected: reading the prefetched artifact through the filesystem port at
+runtime, which fails outright in a browser — half of a consumer set the brief calls co-equal —
+and would make "an `at: build` source is never fetched at runtime" a wording argument rather
+than a property. Also rejected: a third `artifacts` argument to the loader factory, which needs
+no rewritten map and no codegen, but leaves two places that must agree on ids and adds an
+argument only build-time consumers ever pass. The chosen option is also what keeps §3.1 free of
+any branch on `at`, which is the property the whole `at:` axis rests on.
 
 **Whether concurrent reads of one id are coalesced.** Chosen: single-flight, with a generation
 guard so invalidation wins. Rejected: no coalescing, which is meaningfully simpler and needs no
@@ -464,8 +522,8 @@ the first reading never has to make, namely whether an entry is committed when t
 *initiated* the load had opted out, and every answer to that makes one call site's caching
 depend on an unrelated concurrent call's flag. Also rejected: deleting `cache: false` outright,
 which removes the contradiction rather than deciding it and is the cheapest edit by some way —
-but 0.1.0 is published, so the removal is now a breaking change rather than the free one the
-same asymmetry argument assumed in D44, and `refetch` is the consumer that will want it.
+but the package is published, so the removal is now a breaking change rather than the free one
+the same asymmetry argument assumed in D44, and `refetch` is the consumer that will want it.
 
 **Which module turns a YAML source map into a `SourceMap`.** Chosen: `/node`, applying the
 core's own shape check rather than a second copy of it. Rejected: no reader at all, with each
@@ -481,55 +539,22 @@ with no reader at all.
 
 ## 7. Open questions
 
-Four were raised, in descending order of cost. **Three are resolved** and are kept here with
-their resolutions marked in place, because the alternatives each one rejected are the reason
-the shipped answer is the shipped answer — the same argument that keeps rejected options in
-`90-decisions.md`. Only Q4 is still open, and it now blocks nothing.
+Four were raised. **Three are resolved**, and their rejected alternatives live in
+`90-decisions.md` rather than being restated here:
 
-**Q1 — RESOLVED. The port was added.** `JsonPorts.schedule` is `20-contract.md` §4, its absence
-is a construction-time `config.missingPort` under I6, and `/node` composes it in `nodePorts`.
-D48 later added the one map-independent case I6 had missed. The question as originally put:
-
-> **The core cannot wait, and two declared features require waiting.** Time was made a port
-> for reading (`90-decisions.md` D4) but not for *scheduling*. Both `timeoutMs` and a retry's
-> `delayMs` need to schedule work in the future, and the declared port set has no member that
-> can. Three options: add a scheduling port and make its absence a construction-time error
-> wherever a timeout or a non-zero retry delay is declared, matching the existing treatment of
-> a missing clock; use an ambient timer in the core, which is available in both environments
-> but makes retry and timeout untestable without real elapsed time and puts an ambient call in
-> a core whose whole claim is that it has none; or drop `delayMs` and per-attempt timeouts from
-> v1. **Recommendation: add the port.** It is the smallest change that keeps the core's claim
-> true, and it is the same shape as the decision already taken for the clock.
-
-**Q2 — RESOLVED, as recommended.** The check is construction-time and scoped to the entries in
-the map supplied — `20-contract.md` I6, implemented in `checkRequiredPorts`. The question as
-originally put:
-
-> **A missing port for a declared source kind: construction error or read-time failure?**
-> An http source with no fetch port, or a file source with no filesystem port, is a loader that
-> can never satisfy something its own map declares. Making it a construction-time error matches
-> the existing treatment of a ttl policy without a clock; making it a read-time transport
-> failure is more forgiving of a map that declares more than a given environment uses — which
-> is a real case, since one map may be read by both a build and a runtime.
-> **Recommendation: construction-time error, checked only against the sources that environment
-> will actually resolve.**
-
-The forgiving reading Q2 rejected turned out to have a narrow case after all, and it is not the
-one Q2 described: an **ad-hoc** source the map never declares. D48 handles it without reopening
-the choice — the port requirement widens by one map-independent clause rather than the check
-moving to read time.
-
-**Q3 — RESOLVED, as recommended.** `js-yaml` `^4.1.0` on its `DEFAULT_SCHEMA`, a normal
-dependency resolved only by `/node`'s subpath; the core stays at zero (`90-decisions.md` D41,
-`20-contract.md` §12 U3). The question as originally put:
-
-> **Which YAML parser, and is a runtime dependency acceptable at all?** The Node module's
-> conversion needs one, and the package currently declares zero dependencies outside optional
-> peers. Options: a normal dependency of `/node` only, leaving the core at zero; an optional
-> peer the consumer supplies, keeping the dependency count at zero at the cost of setup in
-> three consumer repositories; or a parser port, which is consistent with everything else here
-> but is ceremony for a build-time convenience. **Recommendation: a normal dependency of
-> `/node` only.** The core's zero-dependency claim is the one that matters, and it is untouched.
+- **Q1 — how the core waits, given it may not reach for a timer.** Answered by a cancellable
+  scheduling port whose absence is a construction-time error (`90-decisions.md` D23, D48;
+  `20-contract.md` §4, I6).
+- **Q2 — a missing port for a declared source kind: construction error or read-time failure?**
+  Answered as a construction-time error, scoped to the entries in the map supplied
+  (`90-decisions.md` D30). The forgiving reading Q2 rejected turned out to have one narrow case
+  after all, and it is not the one Q2 described: an **ad-hoc** source the map never declares.
+  D48 handles it by widening the requirement with one map-independent clause rather than moving
+  the check to read time.
+- **Q3 — which YAML parser, and is a runtime dependency acceptable at all?** Answered as a
+  normal dependency of `/node` only, leaving the core at zero (`90-decisions.md` D41;
+  `20-contract.md` §12 U3). The parser was constrained by what the two existing converters
+  already emit, not chosen on general merit — D41 records the measurements.
 
 **Q4 — STILL OPEN, and no longer blocking. Does the GameEngine's determinism guard ban ambient
 timers?** It bans the wall clock and randomness; whether it also bans scheduling is not stated

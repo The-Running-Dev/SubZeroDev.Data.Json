@@ -10,9 +10,11 @@ Companions: `Docs-Template`, `Portfolio/api`, and `Data` are the repositories th
 replaces duplicated logic in; `SubZeroDev.GameEngine` is a deferred consumer (J9) whose
 clock/randomness guard rails shaped the core's port design (`design/90-decisions.md` D4).
 
-Status: **the core and three environments are implemented.** J1, J10–J12 (core), J2 (`/node`),
-J3 (`/build`), and J5 (`/zod`) are merged. J4 (`/react`) is unblocked and unbuilt — §12 U1 is
-answered by `design/90-decisions.md` D53. See `README.md` for the subpath export map and
+Status: **the core and all four environments are implemented, and the package is published.**
+J1, J10–J12 (core), J2 (`/node`), J3 (`/build`), J5 (`/zod`), J4 (`/react`), and J13 (`/node`'s
+source-map reader) are merged; `subzerodev-data-json` is on npm at 0.2.0. What remains is
+adoption: J6+J7 (the `Docs-Template` and `Portfolio/api` migrations, which land as one gate),
+J8 (`Data`), and the deferred J9. See `README.md` for the subpath export map and
 `design/30-slices.md` for the running order.
 
 # Agent contract
