@@ -1842,6 +1842,30 @@ git history for the prose form.
 
 ---
 
+## D67 — Drop J7 (the `Portfolio/api` migration) from scope (2026-08-18)
+
+**Context.** J7 named a migration target — `FileUtils.readJsonFile`/`fileExists`,
+`JsonFileRepository`'s read path, and the two YAML→JSON converters — living in a repository
+referred to as `Portfolio/api`, distinct from the `Portfolio` browser repo J6 covers. That
+repository could not be located: it is not among `The-Running-Dev`'s repositories, and its
+name or owner is not currently known.
+
+**Chosen.** J7 is out of scope. The slice formerly tracked as J6+J7 is J6 only —
+`Migrate Docs-Template` — which is otherwise complete and unaffected by this decision. J7.1–J7.5
+stay recorded in `30-slices.md` as scoped, reviewed work that was never started, rather than
+being deleted outright, so the specification is not lost if the target repository is found or
+recreated.
+
+**Rejected.** Deleting J7's criteria outright — the criteria describe real, previously-reviewed
+work (a `FileUtils` replacement, `mtime`-caching, converter replacement) and discarding them
+gains nothing if the repository resurfaces; re-deriving them from scratch would cost more than
+this decision spent.
+
+**Reversibility:** cheap. Identifying the target repository re-opens J7 as its own slice with no
+lost work — nothing here is destructive, only descoped.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
