@@ -1919,3 +1919,17 @@ split: its `location` half is settled as D37 and its redirect half is issue #16.
 `harness/` still reproduces the findings as originally reported — `node harness/run.mjs`, no
 install — and is now a regression corpus rather than a review: a probe that keeps passing
 after J1 means the amendment did not land. `harness/README.md` states what it is not.
+
+### 2026-08-20 — AGENTS.md re-install merge (kit `06626ea` → `80a19bd`)
+Context: `/install-all` re-sync found `AGENTS.md` missing the kit's `## Marked regions` section
+(added upstream since the target's last sync) and using older wording for the agent-block rule
+that section now supersedes. The project identity header at the top of the file was untouched
+by either version.
+Chosen: took the kit's current shared sections as baseline, applied unmodified — added
+`## Marked regions` and reworded the `agent` block's bullet in *Tracking work* to reference it
+— while preserving the target's project identity header verbatim. No target-specific rule
+conflicted with the kit's; this was a version catch-up, not a fork.
+Rejected: leaving the older wording in place, which would let this repo's copy of the shared
+rule drift from the kit's and quietly stop mentioning the projected/declared distinction other
+kit-owned files (e.g. `.claude/COMPANIONS.md`) now depend on.
+Reversibility: cheap — a single-file edit, revertible from the prior commit.
