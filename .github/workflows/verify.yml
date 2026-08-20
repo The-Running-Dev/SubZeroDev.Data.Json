@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # verification: true
       - name: Parse-check PowerShell scripts
         shell: pwsh
         run: |
@@ -25,6 +26,7 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # verification: true
       - name: Run Pester tests
         shell: pwsh
         run: |
@@ -44,11 +46,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # verification: true
       - name: Typecheck
         run: npm run typecheck
 
+      # verification: true
       - name: Determinism guard (I1)
         run: npm run lint
 
+      # verification: true
       - name: Run tests
         run: npm test
