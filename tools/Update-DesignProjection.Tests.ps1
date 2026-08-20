@@ -362,13 +362,19 @@ Hand-authored tail, outside every region.
     }
 }
 
+# #79/kit-defect (design/90-decisions.md, 2026-08-20): S7.2 assumes design/state/ and the
+# projection targets it feeds (design/state-index.md, etc.) are already populated, true in the
+# kit's own repo but not yet bootstrapped here. Skipped rather than failed until this repo
+# adopts the design/state feature. Computed at discovery time, outside BeforeAll, so -Skip sees it.
+$script:KitDesignStateAdopted = Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'design/state')
+
 Describe 'Update-DesignProjection against this repository''s own tree' {
 
     BeforeAll {
         $script:RepoRoot = Split-Path $PSScriptRoot -Parent
     }
 
-    It 'S7.2: -DryRun against the real repository writes nothing' {
+    It 'S7.2: -DryRun against the real repository writes nothing' -Skip:(-not $script:KitDesignStateAdopted) {
         $before = & git -C $script:RepoRoot status --short
         $result = Invoke-DesignProjection -RepoPath $script:RepoRoot -DryRun
         $after = & git -C $script:RepoRoot status --short

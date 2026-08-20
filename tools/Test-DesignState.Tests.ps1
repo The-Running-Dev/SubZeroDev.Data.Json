@@ -130,6 +130,13 @@ AfterAll {
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
+# #79/kit-defect (design/90-decisions.md, 2026-08-20): several Its below assert against this
+# repository's own design/state/, design/20-contract.md glob table, and design/state-index.md as
+# if they were already populated - true in the kit's own repo, where these tests were written and
+# validated, but not yet bootstrapped here. Skipped rather than failed until this repo adopts the
+# design/state feature; each skipped It is tagged with this same flag.
+$script:KitDesignStateAdopted = Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'design/state')
+
 Describe 'Test-DesignState: id resolution and record-level classes' {
 
     It 'S5.1: UnresolvedId fires when a list field names an id with no record' -Tag 'Fires','UnresolvedId' {
@@ -776,7 +783,7 @@ trailing prose
         $result.CouldNotEvaluate.Detail | Should -Match 'GlobTableNotFound'
     }
 
-    It 'this repository''s own table and its own enumeration agree' -Tag 'NearMiss','GlobDisagreement' {
+    It 'this repository''s own table and its own enumeration agree' -Tag 'NearMiss','GlobDisagreement' -Skip:(-not $script:KitDesignStateAdopted) {
         $repo = Split-Path $PSScriptRoot -Parent
         $result = Test-GlobDisagreement -RepoPath $repo -ContractPath (Join-Path $repo 'design/20-contract.md')
         $result.CouldNotEvaluate | Should -BeNullOrEmpty
@@ -1060,7 +1067,7 @@ Describe 'Test-DesignState against this repository''s own tree' {
         (@($script:RealResult.Findings | Where-Object { $_.Class -eq 'ClassListDisagreement' })).Count | Should -Be 0
     }
 
-    It 'S5.6: the real run names a largest closure, its unit, and its largest contributor' {
+    It 'S5.6: the real run names a largest closure, its unit, and its largest contributor' -Skip:(-not $script:KitDesignStateAdopted) {
         $script:RealResult.LargestClosure | Should -Not -BeNullOrEmpty
         $script:RealResult.LargestClosure.Unit | Should -Not -BeNullOrEmpty
         $script:RealResult.LargestClosure.LargestContributor | Should -Not -BeNullOrEmpty
@@ -1075,7 +1082,7 @@ Describe 'Test-DesignState against this repository''s own tree' {
         (@($result.Findings | Where-Object { $_.Subject -eq 'unit/document/agents-md' })).Count | Should -Be 0
     }
 
-    It 'S12.5: the check exits 0 against this repository, and names the largest closure and its size' {
+    It 'S12.5: the check exits 0 against this repository, and names the largest closure and its size' -Skip:(-not $script:KitDesignStateAdopted) {
         # Replaces S5's 'never clean against this repository', whose stated reason - that most
         # commands, scripts and documents had no unit record - stopped being true at S8 and S9.
         # It kept passing on a divergence it was never written to describe, which is the shape
@@ -1092,7 +1099,7 @@ Describe 'Test-DesignState against this repository''s own tree' {
         (@($script:RealResult.Findings | Where-Object { $_.Class -eq 'ProjectionStale' })).Count | Should -Be 0
     }
 
-    It 'S16.1/S16.2: this repository has one Contract record per design/20-contract.md Public-surface entry, and OwnerMismatch reports none' {
+    It 'S16.1/S16.2: this repository has one Contract record per design/20-contract.md Public-surface entry, and OwnerMismatch reports none' -Skip:(-not $script:KitDesignStateAdopted) {
         # S14 wrote tools/Update-WorkMirror.ps1 and contract/update-workmirror with it, so the
         # S16.6 exclusion (a Declaration pointing at an absent file) no longer applies - the
         # count grew from 8 to 9 with it.
@@ -1102,13 +1109,13 @@ Describe 'Test-DesignState against this repository''s own tree' {
         (@($script:RealResult.Findings | Where-Object { $_.Class -eq 'OwnerMismatch' })).Count | Should -Be 0
     }
 
-    It 'S16.5: design/state-index.md''s consumers region lists real consumers, not the empty-set placeholder' {
+    It 'S16.5: design/state-index.md''s consumers region lists real consumers, not the empty-set placeholder' -Skip:(-not $script:KitDesignStateAdopted) {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'design/state-index.md') -Raw
         $text | Should -Not -Match '_\(no contract records yet\)_'
         $text | Should -Match 'unit/command/pr'
     }
 
-    It 'S17.2: every invariant row in the real Invariants section sits inside the single invariants region, none below it' {
+    It 'S17.2: every invariant row in the real Invariants section sits inside the single invariants region, none below it' -Skip:(-not $script:KitDesignStateAdopted) {
         $contractPath = Join-Path $script:RepoRoot 'design/20-contract.md'
         $text = Get-Content -LiteralPath $contractPath -Raw
         $start = $text.IndexOf("`n## Invariants")
@@ -1135,7 +1142,7 @@ Describe 'Test-DesignState against this repository''s own tree' {
         $parsed.Ids.Count | Should -Be $recordedCount
     }
 
-    It 'S18.6: EnforcementUnevidenced rejects this repository''s own superseded decision once its SupersededBy line is removed, and clears once it is restored' {
+    It 'S18.6: EnforcementUnevidenced rejects this repository''s own superseded decision once its SupersededBy line is removed, and clears once it is restored' -Skip:(-not $script:KitDesignStateAdopted) {
         $supersededPath = Join-Path $script:RepoRoot 'design/state/decisions/2026-08-03-ticking-checkbox-is-the-users.md'
         $original = Get-Content -LiteralPath $supersededPath -Raw
         $original | Should -Match '(?m)^SupersededBy:'
@@ -1313,7 +1320,10 @@ Describe 'S12.6: a checkout with design/state/ removed' {
         Get-ChildItem -LiteralPath $script:S12RepoRoot -Force |
             Where-Object { $_.Name -ne '.git' } |
             Copy-Item -Destination $script:S12Checkout -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath (Join-Path $script:S12Checkout 'design/state') -Recurse -Force
+        # #79/kit-defect: -ErrorAction SilentlyContinue because this repository's own tree may
+        # not have design/state/ to begin with (design/90-decisions.md, 2026-08-20) - the goal
+        # state, a checkout without design/state/, is already met either way.
+        Remove-Item -LiteralPath (Join-Path $script:S12Checkout 'design/state') -Recurse -Force -ErrorAction SilentlyContinue
 
         $script:S12Result = Invoke-DesignStateCheck -RepoPath $script:S12Checkout
     }

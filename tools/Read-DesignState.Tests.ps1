@@ -33,6 +33,11 @@ AfterAll {
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
+# #79/kit-defect (design/90-decisions.md, 2026-08-20): S4.6 asserts against this repository's own
+# design/state/, populated in the kit's own repo where this test was written but not yet
+# bootstrapped here. Skipped rather than failed until this repo adopts the design/state feature.
+$script:KitDesignStateAdopted = Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'design/state')
+
 Describe 'Read-DesignState' {
 
     BeforeEach {
@@ -232,7 +237,7 @@ Describe 'Read-DesignState against this repository''s own state set' {
         $after | Should -Be $script:StatusBefore
     }
 
-    It 'S4.6: unit/command/track and unit/document/agents-md exist and their closures are complete' {
+    It 'S4.6: unit/command/track and unit/document/agents-md exist and their closures are complete' -Skip:(-not $script:KitDesignStateAdopted) {
         $byId = @{}
         foreach ($r in $script:RepoGraph.Records) { $byId[$r.Id] = $r }
 

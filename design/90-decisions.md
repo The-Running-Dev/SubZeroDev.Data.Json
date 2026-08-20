@@ -1866,6 +1866,50 @@ lost work — nothing here is destructive, only descoped.
 
 ---
 
+## D68 — Patch around a kit defect: design/state self-tests assume the feature is bootstrapped (2026-08-20)
+
+**Context.** The kit sync to `80a19bd` ([commit 9724ff5](https://github.com/The-Running-Dev/SubZeroDev.Data.Json/commit/9724ff52dd65bbbe90458f644d09ef682077426b)) introduced the design/state
+governance subsystem — `tools/Read-DesignState.ps1`, `tools/Test-DesignState.ps1`,
+`tools/Update-DesignProjection.ps1`, `tools/Update-WorkMirror.ps1` — and their Pester suites.
+Every command doc that references `design/state/` (`fix.md`, `slice.md`, `track.md`,
+`reconcile.md`) correctly treats it as optional: "where this repository's own `design/state/`
+exists ... where it is absent, behaviour is today's." This repository has never bootstrapped
+`design/state/`, has no `## Invariants` region in `design/20-contract.md`, no
+`design/state-index.md`, and its `.github/workflows/verify.yml` has no "Check the design state
+against the tree" step. But the synced self-tests — the `Describe` blocks titled "against this
+repository's own tree/state set" in `Test-DesignState.Tests.ps1`, `Read-DesignState.Tests.ps1`,
+`Update-DesignProjection.Tests.ps1`, plus `Test-CIWorkflow.Tests.ps1` — were authored and
+validated against the kit's own repository, where `design/state/` genuinely is populated, and
+hard-assume that shape unconditionally. One (`S12.6`) even documents the assumption in its own
+`BeforeAll` comment: "the shape every installed target has by construction." That's false here.
+11 tests failed on that basis (12 counting a cascaded `BeforeAll` failure) — a kit defect, not a
+regression in this repository's own code.
+
+**Chosen.** Patch the failing self-tests locally as a stopgap: each is now guarded with
+`-Skip:(-not $script:KitDesignStateAdopted)`, where the flag is `Test-Path design/state`
+(or, for the CI-workflow test, whether the "Check the design state against the tree" step
+exists in `verify.yml`) — the same absence-means-not-adopted signal `Read-DesignState.ps1`
+already uses internally (`S4.4`). One genuine mechanical bug was fixed outright, not skipped:
+`S12.6`'s `BeforeAll` tried to `Remove-Item` a `design/state/` copy that was never there to
+begin with, because the source repository itself lacks it; it now tolerates an already-absent
+directory (`-ErrorAction SilentlyContinue`), since the test's actual goal state — a checkout
+without `design/state/` — was already met either way.
+
+**Rejected.** Bootstrapping `design/state/` for real (populating unit/contract/invariant/
+decision records, adding the `## Invariants` region and `design/state-index.md`, wiring the CI
+step) — that is adopting a whole new kit feature, a judgement-heavy task closer to a slice than
+a CI fix, and not something to absorb silently while just trying to get this branch green.
+Also rejected: reverting the design/state tooling out of this sync entirely — the tooling itself
+is not broken, only its self-tests' assumption about this repository's adoption state, and a
+future adoption pass can lift these skips by deleting the guards once `design/state/` exists.
+
+**Reversibility:** cheap. Each skip is a single `-Skip:` clause tied to one boolean flag;
+bootstrapping `design/state/` later makes the flag true and every guarded test runs again
+unmodified. The kit defect itself (self-tests with an unconditional adoption assumption) should
+also be reported upstream so future kit-sync targets don't hit the same red CI.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

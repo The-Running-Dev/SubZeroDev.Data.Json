@@ -10,6 +10,12 @@
   step is meant to gate.
 #>
 
+# #79/kit-defect (design/90-decisions.md, 2026-08-20): this test assumes a "Check the design
+# state against the tree" step already exists in .github/workflows/verify.yml, true in the kit's
+# own repo but not yet added here - this repo has not adopted the design/state CI gate at all.
+# Skipped rather than failed until that step exists.
+$script:KitDesignStateGateWired = (Get-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) '.github/workflows/verify.yml') -Raw) -match 'Check the design state against the tree'
+
 Describe 'CI workflow: the Run Pester tests step is authenticated (#79)' {
 
     BeforeAll {
@@ -17,7 +23,7 @@ Describe 'CI workflow: the Run Pester tests step is authenticated (#79)' {
         $script:Lines = Get-Content -LiteralPath $script:WorkflowPath
     }
 
-    It 'the "Run Pester tests" step carries a GH_TOKEN env, the same as "Check the design state against the tree"' {
+    It 'the "Run Pester tests" step carries a GH_TOKEN env, the same as "Check the design state against the tree"' -Skip:(-not $script:KitDesignStateGateWired) {
         $stepIndex = ($script:Lines | Select-String -Pattern '- name: Run Pester tests').LineNumber
         $stepIndex | Should -Not -BeNullOrEmpty
 
