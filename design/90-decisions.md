@@ -1946,6 +1946,9 @@ issues #29 and #30, and removed likewise. O28 was filed the same day, as issue #
 likewise. The public/server gate content-scan item (D46) was filed on 2026-08-08 as issue #37
 and removed likewise. Track them all there. O24 is answered by D41 above.
 
+The `Test-DesignDrift.ps1` S/J-prefix tooling defect was filed on 2026-08-29 as issue #72 and
+removed likewise.
+
 The `/node` source-map reader item (D62/D63, U8) is removed from this section on 2026-08-08
 without being filed separately: `/slices` had already answered it by adding J13, tracked as
 issue #60.
