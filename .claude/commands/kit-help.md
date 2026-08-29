@@ -3,12 +3,12 @@ description: Where this repository is in the pipeline, and what to run next. Usa
 argument-hint: [all, or a stage or command name]
 ---
 
-<!-- companion:start -->
+<!-- companion:declared:start -->
 **Per-repo companion:** `.claude/commands/kit-help-local.md`. Read it now, if it exists — an absent,
 empty, or frontmatter-only file is no companion, and this file then stands alone.
 It may override: `vocabulary`, `document-map`. It may never override anything in
 [`.claude/COMPANIONS.md`](../COMPANIONS.md) § *Never*, which is also where these categories are defined.
-<!-- companion:end -->
+<!-- companion:declared:end -->
 
 Orient the user in this repository's pipeline. **$1** narrows it — `all` shows the whole flow, a stage or command name shows that step. With nothing, work out where the repository actually is and show the current step and the next one.
 
@@ -64,8 +64,8 @@ One slice, one branch, one session. Do not start slice N+1 because you noticed s
 1. **`/slice S3`**, or bare **`/slice`** for the lowest-numbered slice that is neither closed nor fully ticked and whose dependencies are done. Branches, states criteria by id, writes failing tests first, implements against the contract, commits, pushes, opens the PR — **never as a draft** — ticks the `Done when` boxes it confirms, and ends by reporting the ids it believes are met.
 2. **`/pr`** — same session, and the whole of the rest of the branch's life. Three phases in order: writes the real description onto the PR `/slice` opened; runs the gates and puts their three lists — the one that matters is *did not run* — into the `Verified` section **verbatim**, fixing nothing; then works the review threads automatically, fix → push → confirm checks on the **new** head → only then resolve. Resolving is delegated, no ask required (`AGENTS.md`, *Git and delivery*).
 3. **Merge** — the user's, unless this repository's instruction file explicitly delegates it.
-4. **`/track`** — **new session**, after the merge. Closes the issue if every box is ticked.
-5. **`/done`** — any time after the merge. Switches back to the default branch, deletes the now-merged local slice branch (and any other local branch already merged), and prunes remote-tracking refs for branches gone from `origin`. Optional housekeeping, not a pipeline step — nothing downstream depends on it.
+4. **`/clean`** — right after the merge, in the same session. Switches back to the default branch, deletes the now-merged local slice branch (and any other local branch already merged), and prunes remote-tracking refs for branches gone from `origin`. It does not end the loop on its own: every run hands off to `/track`, and it never runs `/track` itself.
+5. **`/track`** — **new session**, after `/clean`. Closes the issue if every box is ticked.
 
 `/verify` and `/resolve` are phases 2 and 3 of `/pr` and own their own procedure; both stay callable on their own when you want the gates run against a tree, or threads worked on a PR `/pr` did not open.
 

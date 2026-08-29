@@ -3,12 +3,12 @@ description: Clone or update the shared kit checkout at ~/.agent-kit, then run I
 argument-hint: [branch]
 ---
 
-<!-- companion:start -->
+<!-- companion:declared:start -->
 **Per-repo companion:** `.claude/commands/kit-sync-local.md`. Read it now, if it exists — an absent,
 empty, or frontmatter-only file is no companion, and this file then stands alone.
 It may override: `extra-steps`, `tightened-authorization`. It may never override anything in
 [`.claude/COMPANIONS.md`](../COMPANIONS.md) § *Never*, which is also where these categories are defined.
-<!-- companion:end -->
+<!-- companion:declared:end -->
 
 Get the kit itself onto disk, then reconcile it into this repository — the two steps `/install` needs, done back to back, without requiring the kit to already be checked out somewhere you point at.
 
@@ -69,7 +69,7 @@ Everything `INSTALL.md` phase 3 already requires, plus:
 - Force-push, reset, or discard uncommitted work in `~/.agent-kit`. It is shared across every repository that runs this command.
 - Hardcode a source URL as a fallback. Absent `kit.json` means asking, once.
 - Write, rewrite, or delete this repository's `.claude/commands/*-local.md`. They are the reason a routine sync can take every core outright; a sync that edited them would be reconciling the very thing the split moved out of its way.
-- Commit or push anything in *this* repository — same as `/install`, this stops at the phase 3 report, and applies only after sign-off.
+- Commit to, or push to, *this* repository's default branch. Delivery is `INSTALL.md` phase 4 step 8's feature branch and pull request, unchanged by syncing from a branch — this command adds nothing to it and does not restate it.
 
 ## Re-run
 
