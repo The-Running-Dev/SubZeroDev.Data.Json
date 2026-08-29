@@ -9,8 +9,16 @@
 
   Every fixture below is written into $TestDrive as design/state/... under a throwaway root;
   none of these tests (other than the S4.6 closure checks, which are explicit about reading the
-  real one) read this repository's own design/state/.
+  real one) read the containing checkout's own design/state/. That S4.6 block asserts on adopted
+  design-state content, which only this repository has: the 2026-08-19 compatibility promise
+  (design/90-decisions.md) leaves the installed targets unmigrated, and this file is copied into
+  every one of them. So it is skipped wherever design/state/units/ is absent - false and unevaluated
+  rather than a false pass or a false failure, the same way Test-DesignState.ps1 itself reports
+  StateSetAbsent and exits 2 rather than a silent 0.
 #>
+
+$script:ReadDesignStateSelfTestRoot = Split-Path $PSScriptRoot -Parent
+$script:SkipReadDesignStateSelfTests = -not (Test-Path (Join-Path $script:ReadDesignStateSelfTestRoot 'design/state/units'))
 
 BeforeAll {
     $script:ScriptPath = Join-Path $PSScriptRoot 'Read-DesignState.ps1'
@@ -32,11 +40,6 @@ AfterAll {
     Get-ChildItem (Join-Path $TestDrive 'design') -ErrorAction SilentlyContinue -Recurse -File |
         Remove-Item -Force -ErrorAction SilentlyContinue
 }
-
-# #79/kit-defect (design/90-decisions.md, 2026-08-20): S4.6 asserts against this repository's own
-# design/state/, populated in the kit's own repo where this test was written but not yet
-# bootstrapped here. Skipped rather than failed until this repo adopts the design/state feature.
-$script:KitDesignStateAdopted = Test-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'design/state')
 
 Describe 'Read-DesignState' {
 
@@ -224,7 +227,7 @@ Affects: unit/command/track
     }
 }
 
-Describe 'Read-DesignState against this repository''s own state set' {
+Describe 'Read-DesignState against this repository''s own state set' -Skip:$script:SkipReadDesignStateSelfTests {
 
     BeforeAll {
         $script:RepoRoot = Split-Path $PSScriptRoot -Parent
@@ -237,7 +240,7 @@ Describe 'Read-DesignState against this repository''s own state set' {
         $after | Should -Be $script:StatusBefore
     }
 
-    It 'S4.6: unit/command/track and unit/document/agents-md exist and their closures are complete' -Skip:(-not $script:KitDesignStateAdopted) {
+    It 'S4.6: unit/command/track and unit/document/agents-md exist and their closures are complete' {
         $byId = @{}
         foreach ($r in $script:RepoGraph.Records) { $byId[$r.Id] = $r }
 
