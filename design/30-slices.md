@@ -24,15 +24,12 @@ been tested: the digest's byte-identity with the GameEngine's serializer, which
 that the core survives the determinism guard (I1). J10–J12 follow
 in ascending order of what a mistake in them costs to undo.
 
-**Where the work stands.** J1, J10, J11, J12, J2, J3, J5, and J4 are merged — the core and all
-four leaves. J6 is merged into `Docs-Template` (`Docs-Template` PR #64). **J13 is the frontier,
-and nothing is blocked.** J6's block was `20-contract.md`
-§12 U8, and the `/contract` pass of 2026-08-08 resolved it: `/node` owns the YAML-to-`SourceMap`
-bridge (`90-decisions.md` D62), §9 declares it as `parseSourceMap` and `readSourceMap`, I42
-constrains it, and `config.unreadable` joins §10's closed union (D63). No code in `src/node/`
-implements any of it, so what was a block on J6 is now a slice ahead of it. Doneness itself
-is the issue's to record, not this file's (`AGENTS.md`, *Tracking work*); the checkboxes below
-define a slice and are not a progress bar.
+**Where the work stands.** J1, J10, J11, J12, J2, J3, J5, J4, J13, J6, and J8 are merged — the
+core, all four leaves, the configuration bridge, and both adoption slices that were ever in
+scope. **J9 is the only slice left, and it is deferred** — gated on content packs existing
+rather than on anything unresolved here. Doneness itself is the issue's to record, not this
+file's (`AGENTS.md`, *Tracking work*); the checkboxes below define a slice and are not a
+progress bar.
 
 ---
 
