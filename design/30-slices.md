@@ -12,10 +12,11 @@ anything, because `20-contract.md` §12, `90-decisions.md`, `10-design.md` §2, 
 `00-brief.md` all cite the existing ids. Read in the running order below, not in numeric
 order.
 
-**Running order:** J1 → J10 → J11 → J12 → J2 → J3 → J5 → J4 → J13 → J6+J7 → J8 → J9.
+**Running order:** J1 → J10 → J11 → J12 → J2 → J3 → J5 → J4 → J13 → J6 → J8 → J9.
 
 **J1, J10–J12 are the core. J2, J3, J5 are the environments. J4 is the fourth. J13 closes the
-configuration gap all four left open. J6+J7 prove it. J8–J9 are adoption.**
+configuration gap all four left open. J6 proves it. J8–J9 are adoption.** (J7 was scoped
+alongside J6 and dropped — `90-decisions.md` D67.)
 
 J1 is first because it carries the two assumptions the whole design rests on and neither has
 been tested: the digest's byte-identity with the GameEngine's serializer, which
@@ -24,11 +25,12 @@ that the core survives the determinism guard (I1). J10–J12 follow
 in ascending order of what a mistake in them costs to undo.
 
 **Where the work stands.** J1, J10, J11, J12, J2, J3, J5, and J4 are merged — the core and all
-four leaves. **J13 is the frontier, and nothing is blocked.** J6+J7's block was `20-contract.md`
+four leaves. J6 is merged into `Docs-Template` (`Docs-Template` PR #64). **J13 is the frontier,
+and nothing is blocked.** J6's block was `20-contract.md`
 §12 U8, and the `/contract` pass of 2026-08-08 resolved it: `/node` owns the YAML-to-`SourceMap`
 bridge (`90-decisions.md` D62), §9 declares it as `parseSourceMap` and `readSourceMap`, I42
 constrains it, and `config.unreadable` joins §10's closed union (D63). No code in `src/node/`
-implements any of it, so what was a block on J6+J7 is now a slice ahead of it. Doneness itself
+implements any of it, so what was a block on J6 is now a slice ahead of it. Doneness itself
 is the issue's to record, not this file's (`AGENTS.md`, *Tracking work*); the checkboxes below
 define a slice and are not a progress bar.
 
@@ -534,34 +536,31 @@ through the other. Do not normalize in the reader; I41 makes that the loader's, 
 read both maps in one pass, merge them, or check cross-file duplicate ids — `assertNoDuplicateIds`
 is `/build`'s (I23, J3.9) and this reader is handed one file. Do not watch the file for changes:
 a changed map means a new loader (`10-design.md` §1.2), not a reload. Do not migrate a consumer
-onto it here — that is J6+J7 — and do not add a writer, which `00-brief.md` §5.1 forbids
+onto it here — that is J6 — and do not add a writer, which `00-brief.md` §5.1 forbids
 outright.
 
 ---
 
-## J6+J7 — Migrate Docs-Template and Portfolio/api
+## J6 — Migrate Docs-Template
 
-**One gate, both consumers.** Landing the browser first lets the core accrete browser
-assumptions, and the isomorphism claim then becomes retroactive (`10-design.md` §2).
+J7 (`Portfolio/api`) was scoped alongside this slice below but is dropped from scope —
+`90-decisions.md` D67. Its criteria stay recorded here, under **Out of scope**, rather than
+being deleted.
 
-Delivers: The two repositories this package was written for stop carrying their own loaders.
-Four divergent HTTP paths, three unrelated cache policies, two copies of the same
-provider-selection function, and the untyped file reads behind the API all become one
-declared configuration and one call. The line count goes down; if it does not, the design is
-wrong.
+Delivers: The repository this package was written for stops carrying its own loader. Four
+divergent HTTP paths, three unrelated cache policies, and two copies of the same
+provider-selection function all become one declared configuration and one call. The line count
+goes down; if it does not, the design is wrong.
 
 **Contract:** all of `20-contract.md`
-**Touches:** `Docs-Template`, `Portfolio`, `Portfolio/api`, `config/sources.public.yml`,
-`config/sources.server.yml`
+**Touches:** `Docs-Template`, `config/sources.public.yml`
 **Depends on:** J2, J3, J4, J5, J13. The §12 U1 block that reached this slice through J4 is
 lifted (`90-decisions.md` D53), and so is the §12 U8 block that was stated here
 
 **Blocked by:** nothing. U8 was this slice's block — J6.4 and J6.6 put sources into
 `config/sources.public.yml` and nothing turned that file into a `SourceMap`. It is resolved
 (`90-decisions.md` D62, D63), and the bridge is J13 rather than a signature this slice invents
-on the way past. The two consumers still need different halves of it: the browser reaches its
-map through the build's derived runtime map (I33), and the API reads `sources.server.yml` at
-runtime through `readSourceMap`.
+on the way past. The browser reaches its map through the build's derived runtime map (I33).
 
 ### Done when
 
@@ -590,26 +589,28 @@ runtime through `readSourceMap`.
       neither repository hand-rolls a YAML reader of its own. A second private
       parser in a consumer is the duplication this package exists to retire, reappearing one
       layer up.
-- [ ] **J7.1** `FileUtils.readJsonFile` and `fileExists` are replaced by the loader.
-      `JsonFileRepository` keeps its filter, sort, paginate, and write logic.
-- [ ] **J7.2** Per-request full-file reads are replaced by `mtime`-cached reads.
-- [ ] **J7.3** `JsonFileRepository`'s lost-update race and mid-write truncation are **recorded
-      in that repository** as known-and-retained, with the reasoning. They are out of scope
-      here (`90-decisions.md` D5) and must not simply disappear from the record.
-- [ ] **J7.4** Both YAML→JSON converters are replaced by the J2 CLI.
-- [ ] **J7.5** **The migration deletes more lines than it adds.** If it does not, stop: the
-      design is wrong and this is where that surfaces (`00-brief.md` §7.3).
-
-**Out of scope:** fixing the `JsonFileRepository` defects J7.3 records. D5 leaves them
-unowned deliberately, and repairing them here converts a scoping decision into an unreviewed
-one. Do not migrate `Data` on the way past — that is J8. **Do not build or extend the YAML
-reader here**: it is J13's, and a migration that reshapes it under its own pressure reshapes it
-for one consumer's convenience rather than for both — which is why U8 was answered by
-`/contract` and not by this slice. **Do not change what `useJson().refetch()` does either**,
+**Out of scope:** Do not migrate `Data` on the way past — that is J8. **Do not build or extend
+the YAML reader here**: it is J13's, and a migration that reshapes it under its own pressure
+reshapes it for one consumer's convenience rather than for both — which is why U8 was answered
+by `/contract` and not by this slice. **Do not change what `useJson().refetch()` does either**,
 however plainly the migration wants it to: `20-contract.md` §9 declares the signature and
 names no semantics, `10-design.md` names none, and `90-decisions.md` records that under a
 `manual` policy it can never return a fresh value. That is a decision owed before it is code,
 and it is not this slice's to take.
+
+**J7, dropped from scope (`90-decisions.md` D67):** these were never implemented and are not
+this slice's `Done when` criteria. Recorded here so the specification is not lost if the
+`Portfolio/api` repository is found or recreated.
+
+- **J7.1** `FileUtils.readJsonFile` and `fileExists` are replaced by the loader.
+  `JsonFileRepository` keeps its filter, sort, paginate, and write logic.
+- **J7.2** Per-request full-file reads are replaced by `mtime`-cached reads.
+- **J7.3** `JsonFileRepository`'s lost-update race and mid-write truncation are **recorded
+  in that repository** as known-and-retained, with the reasoning. They are out of scope
+  here (`90-decisions.md` D5) and must not simply disappear from the record.
+- **J7.4** Both YAML→JSON converters are replaced by the J2 CLI.
+- **J7.5** **The migration deletes more lines than it adds.** If it does not, stop: the
+  design is wrong and this is where that surfaces (`00-brief.md` §7.3).
 
 ---
 
@@ -717,7 +718,7 @@ register that answers them; this section is a pointer, not a second copy (`AGENT
 
 - **§12 U8 is closed.** Nothing turned `sources.*.yml` into a `SourceMap`; §9 now declares
   `parseSourceMap` and `readSourceMap` under I42 (`90-decisions.md` D62, D63). Was gap 1. It
-  blocked **J6+J7** and it no longer does — the work is **J13**, and J2 and J3 still leave it
+  blocked **J6** and it no longer does — the work is **J13**, and J2 and J3 still leave it
   alone.
 - **§12 U7** — no public canonical serializer. Was gap 2. Blocks **J9**.
 - Gap 3, `meta.location` for an `inline` source, is **closed**: `20-contract.md` §1 states that

@@ -1812,6 +1812,104 @@ is `git checkout` against the pre-sync commit.
 
 ---
 
+## D66 — `10-design.md` §7's resolved questions become pointers, not restatements (2026-08-13)
+
+**Context.** The `/design` pass of 2026-08-13 rewrote `10-design.md` in full. Its §7 carried Q1,
+Q2, and Q3 as block quotes of the original questions plus their rejected alternatives, roughly
+fifty lines, justified in the document's own words as keeping the rejected options "because the
+alternatives each one rejected are the reason the shipped answer is the shipped answer — the same
+argument that keeps rejected options in `90-decisions.md`."
+
+That argument points at this file, which is where those alternatives already live: Q1's ambient
+timer and dropped-timeout options are D23 and D48, Q2's read-time-failure option is D30, Q3's
+optional-peer and parser-port options are D41. `AGENTS.md` *Single ownership* forbids the second
+copy — and the copies had already begun to diverge, since D48's narrowing of Q2 was appended as a
+paragraph below the quoted question rather than into it.
+
+**Chosen.** §7 keeps Q4, the one question still open, in full. Q1–Q3 become one line each naming
+what was answered and the decision that answers it, with the one substantive amendment since
+(D48's map-independent clause) stated inline because it changes what Q2's answer *is*.
+
+**Rejected.** Keeping the block quotes, which is the status quo and costs nothing to leave alone
+— but it is a restatement of this file inside the document that outranks it only on architecture,
+and a reader who finds the two disagreeing has no rule for which wins. Also rejected: deleting
+Q1–Q3 outright, which is what "resolved" would normally mean and is the smallest §7; it loses the
+trail from a question a reader may still be carrying to the entry that closed it, and the command
+that owns this file treats a resolved question as shrinking rather than vanishing.
+
+**Reversibility:** cheap. The removed text is in this file's own D23, D30, D41, and D48, and in
+git history for the prose form.
+
+---
+
+## D67 — Drop J7 (the `Portfolio/api` migration) from scope (2026-08-18)
+
+**Context.** J7 named a migration target — `FileUtils.readJsonFile`/`fileExists`,
+`JsonFileRepository`'s read path, and the two YAML→JSON converters — living in a repository
+referred to as `Portfolio/api`, distinct from the `Portfolio` browser repo J6 covers. That
+repository could not be located: it is not among `The-Running-Dev`'s repositories, and its
+name or owner is not currently known.
+
+**Chosen.** J7 is out of scope. The slice formerly tracked as J6+J7 is J6 only —
+`Migrate Docs-Template` — which is otherwise complete and unaffected by this decision. J7.1–J7.5
+stay recorded in `30-slices.md` as scoped, reviewed work that was never started, rather than
+being deleted outright, so the specification is not lost if the target repository is found or
+recreated.
+
+**Rejected.** Deleting J7's criteria outright — the criteria describe real, previously-reviewed
+work (a `FileUtils` replacement, `mtime`-caching, converter replacement) and discarding them
+gains nothing if the repository resurfaces; re-deriving them from scratch would cost more than
+this decision spent.
+
+**Reversibility:** cheap. Identifying the target repository re-opens J7 as its own slice with no
+lost work — nothing here is destructive, only descoped.
+
+---
+
+## D68 — Patch around a kit defect: design/state self-tests assume the feature is bootstrapped (2026-08-20)
+
+**Context.** The kit sync to `80a19bd` ([commit 9724ff5](https://github.com/The-Running-Dev/SubZeroDev.Data.Json/commit/9724ff52dd65bbbe90458f644d09ef682077426b)) introduced the design/state
+governance subsystem — `tools/Read-DesignState.ps1`, `tools/Test-DesignState.ps1`,
+`tools/Update-DesignProjection.ps1`, `tools/Update-WorkMirror.ps1` — and their Pester suites.
+Every command doc that references `design/state/` (`fix.md`, `slice.md`, `track.md`,
+`reconcile.md`) correctly treats it as optional: "where this repository's own `design/state/`
+exists ... where it is absent, behaviour is today's." This repository has never bootstrapped
+`design/state/`, has no `## Invariants` region in `design/20-contract.md`, no
+`design/state-index.md`, and its `.github/workflows/verify.yml` has no "Check the design state
+against the tree" step. But the synced self-tests — the `Describe` blocks titled "against this
+repository's own tree/state set" in `Test-DesignState.Tests.ps1`, `Read-DesignState.Tests.ps1`,
+`Update-DesignProjection.Tests.ps1`, plus `Test-CIWorkflow.Tests.ps1` — were authored and
+validated against the kit's own repository, where `design/state/` genuinely is populated, and
+hard-assume that shape unconditionally. One (`S12.6`) even documents the assumption in its own
+`BeforeAll` comment: "the shape every installed target has by construction." That's false here.
+11 tests failed on that basis (12 counting a cascaded `BeforeAll` failure) — a kit defect, not a
+regression in this repository's own code.
+
+**Chosen.** Patch the failing self-tests locally as a stopgap: each is now guarded with
+`-Skip:(-not $script:KitDesignStateAdopted)`, where the flag is `Test-Path design/state`
+(or, for the CI-workflow test, whether the "Check the design state against the tree" step
+exists in `verify.yml`) — the same absence-means-not-adopted signal `Read-DesignState.ps1`
+already uses internally (`S4.4`). One genuine mechanical bug was fixed outright, not skipped:
+`S12.6`'s `BeforeAll` tried to `Remove-Item` a `design/state/` copy that was never there to
+begin with, because the source repository itself lacks it; it now tolerates an already-absent
+directory (`-ErrorAction SilentlyContinue`), since the test's actual goal state — a checkout
+without `design/state/` — was already met either way.
+
+**Rejected.** Bootstrapping `design/state/` for real (populating unit/contract/invariant/
+decision records, adding the `## Invariants` region and `design/state-index.md`, wiring the CI
+step) — that is adopting a whole new kit feature, a judgement-heavy task closer to a slice than
+a CI fix, and not something to absorb silently while just trying to get this branch green.
+Also rejected: reverting the design/state tooling out of this sync entirely — the tooling itself
+is not broken, only its self-tests' assumption about this repository's adoption state, and a
+future adoption pass can lift these skips by deleting the guards once `design/state/` exists.
+
+**Reversibility:** cheap. Each skip is a single `-Skip:` clause tied to one boolean flag;
+bootstrapping `design/state/` later makes the flag true and every guarded test runs again
+unmodified. The kit defect itself (self-tests with an unconditional adoption assumption) should
+also be reported upstream so future kit-sync targets don't hit the same red CI.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -1865,3 +1963,17 @@ split: its `location` half is settled as D37 and its redirect half is issue #16.
 `harness/` still reproduces the findings as originally reported — `node harness/run.mjs`, no
 install — and is now a regression corpus rather than a review: a probe that keeps passing
 after J1 means the amendment did not land. `harness/README.md` states what it is not.
+
+### 2026-08-20 — AGENTS.md re-install merge (kit `06626ea` → `80a19bd`)
+Context: `/install-all` re-sync found `AGENTS.md` missing the kit's `## Marked regions` section
+(added upstream since the target's last sync) and using older wording for the agent-block rule
+that section now supersedes. The project identity header at the top of the file was untouched
+by either version.
+Chosen: took the kit's current shared sections as baseline, applied unmodified — added
+`## Marked regions` and reworded the `agent` block's bullet in *Tracking work* to reference it
+— while preserving the target's project identity header verbatim. No target-specific rule
+conflicted with the kit's; this was a version catch-up, not a fork.
+Rejected: leaving the older wording in place, which would let this repo's copy of the shared
+rule drift from the kit's and quietly stop mentioning the projected/declared distinction other
+kit-owned files (e.g. `.claude/COMPANIONS.md`) now depend on.
+Reversibility: cheap — a single-file edit, revertible from the prior commit.
