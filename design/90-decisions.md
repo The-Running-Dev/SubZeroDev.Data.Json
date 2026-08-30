@@ -1939,6 +1939,12 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
   is the flag's first real consumer — which is the concrete argument that kept D61 from
   deleting it. Needs a decision on what `refetch` means before it needs code.
 
+The `Test-DesignDrift.ps1` doc-side checklist parser and pin-scoping defects found on 2026-08-30
+were filed as issues #76 and #77 and removed from this section likewise. Both surfaced only
+once PR #75 fixed the script's S/J-prefix blindness and let the doc-side comparison run for the
+first time; three of that run's `PinNotAncestor` findings (J12 #4, J4 #8, J13 #60) were real and
+were repinned to `545bc93` in the same `/track` run, independent of either filed defect.
+
 O1, O3, O4, O5, O15, O16, O24 and O25 were filed by `/track` on 2026-08-07
 (`The-Running-Dev/SubZeroDev.Data.Json` issues #12–#19) and removed from this section. O26 and
 O27 were filed by the same command later the same day, as `The-Running-Dev/SubZeroDev.Data.Json`
