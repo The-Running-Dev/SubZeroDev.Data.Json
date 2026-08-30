@@ -143,7 +143,7 @@ function Get-SliceCriteria {
             continue
         }
 
-        if ($prefix -and $null -ne $current -and $line -match "^\s*-\s+$prefix(?<n>\d+)\.(?<m>\d+)\b") {
+        if ($prefix -and $null -ne $current -and $line -match "^\s*-\s*(?:\[[ xX]\]\s*)?\*{0,2}$prefix(?<n>\d+)\.(?<m>\d+)\*{0,2}") {
             if ([int]$Matches['n'] -ne $current) {
                 # An id numbered for a different slice than the section it sits in. Reported
                 # rather than silently filed under either, because it is a defect in the doc.
