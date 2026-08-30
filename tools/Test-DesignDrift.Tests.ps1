@@ -115,6 +115,30 @@ Describe 'Test-DesignDrift' {
             ($r.Findings | Where-Object Kind -eq 'InIssueNotDoc').Detail | Should -Be 'S1.7'
         }
 
+        It 'the real document shape - checkbox and bold markers around the id - is recognized' {
+            # design/30-slices.md's actual lines are `- [ ] **J1.1** ...`, not the bare
+            # `- S1.1 ...` shape $TwoCriterionDoc uses above. Issue #76: the doc-side parser
+            # required the id immediately after the dash and never matched a real slice file.
+            $path = New-SlicesDoc -Content @'
+# Slices
+
+## S1 — A slice
+
+Acceptance:
+- [ ] **S1.1** The first criterion holds.
+- [x] **S1.2** The second criterion holds.
+'@
+            Mock Get-TrackerIssue { New-Tracker -Issues @(
+                New-Issue -Number 9 -Title 'S1 — A slice' -Body "- [ ] **S1.1** first`n- [x] **S1.2** second"
+            ) }
+
+            $r = Invoke-DriftCheck -SlicesPath $path
+
+            $r.State | Should -Be 'Clean'
+            $r.Findings.Count | Should -Be 0
+            $r.SlicesCompared | Should -Be 1
+        }
+
         It 'an id cited in prose outside a slice section is not counted as a criterion' {
             # The real document does exactly this in its Contract questions section, so a
             # whole-file regex would invent criteria that were never cut.
