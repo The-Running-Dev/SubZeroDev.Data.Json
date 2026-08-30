@@ -81,9 +81,32 @@ function New-Failure {
 }
 
 <#
-    Criterion ids are read only from lines under a `## S<n>` heading, never from the whole
-    file. Prose cites ids too - "exercised by S1.10" appears in this document's own Contract
-    questions section - and a whole-file regex would count those as criteria that exist.
+    The slice-id prefix is not a repository setting this script can be told in advance - it is
+    a fact of the document, read out of the document (design/90-decisions.md D10: this
+    repository's prefix is `J`, the kit's generic template uses `S`, and nothing here should
+    have to know which). The prefix is whatever letters precede the digits in the first
+    slice-shaped marker found, heading or landed-table row.
+#>
+function Get-SlicePrefix {
+    # Not [Parameter(Mandatory)]: Mandatory implicitly validates every array element as
+    # non-empty, and a blank line in the document (a normal, expected line) would then fail
+    # parameter binding with a misleading "it is an empty string" error.
+    param([string[]] $Lines = @())
+
+    foreach ($line in $Lines) {
+        if ($line -match '^##\s+(?<prefix>[A-Z]+)\d+\b') { return $Matches['prefix'] }
+    }
+    foreach ($line in $Lines) {
+        if ($line -match '^\|\s*\*\*(?<prefix>[A-Z]+)\d+\*\*\s*\|') { return $Matches['prefix'] }
+    }
+    $null
+}
+
+<#
+    Criterion ids are read only from lines under a `## <Prefix><n>` heading, never from the
+    whole file. Prose cites ids too - "exercised by S1.10" appears in this document's own
+    Contract questions section - and a whole-file regex would count those as criteria that
+    exist.
 #>
 function Get-SliceCriteria {
     param([Parameter(Mandatory)][string] $Path)
@@ -92,72 +115,77 @@ function Get-SliceCriteria {
         return [pscustomobject]@{
             Slices  = @{}
             Landed  = @()
+            Prefix  = $null
             Failure = (New-Failure -Reason 'SlicesDocMissing' -Detail $Path)
         }
     }
+
+    $lines  = @(Get-Content -LiteralPath $Path)
+    $prefix = Get-SlicePrefix -Lines $lines
 
     $slices  = @{}
     $landed  = [System.Collections.Generic.List[int]]::new()
     $current = $null
 
-    foreach ($line in (Get-Content -LiteralPath $Path)) {
+    foreach ($line in $lines) {
         if ($line -match '^##\s') {
             # A new second-level heading always ends the previous slice's body, so an
             # Acceptance line can never be attributed across a section boundary.
-            $current = if ($line -match '^##\s+S(?<n>\d+)\b') { [int]$Matches['n'] } else { $null }
+            $current = if ($prefix -and $line -match "^##\s+$prefix(?<n>\d+)\b") { [int]$Matches['n'] } else { $null }
             if ($null -ne $current -and -not $slices.ContainsKey($current)) {
                 $slices[$current] = [System.Collections.Generic.List[string]]::new()
             }
             continue
         }
 
-        if ($line -match '^\|\s*\*\*S(?<n>\d+)\*\*\s*\|') {
+        if ($prefix -and $line -match "^\|\s*\*\*$prefix(?<n>\d+)\*\*\s*\|") {
             $landed.Add([int]$Matches['n'])
             continue
         }
 
-        if ($null -ne $current -and $line -match '^\s*-\s+S(?<n>\d+)\.(?<m>\d+)\b') {
+        if ($prefix -and $null -ne $current -and $line -match "^\s*-\s+$prefix(?<n>\d+)\.(?<m>\d+)\b") {
             if ([int]$Matches['n'] -ne $current) {
                 # An id numbered for a different slice than the section it sits in. Reported
                 # rather than silently filed under either, because it is a defect in the doc.
                 if (-not $slices.ContainsKey(-1)) {
                     $slices[-1] = [System.Collections.Generic.List[string]]::new()
                 }
-                $slices[-1].Add("S$($Matches['n']).$($Matches['m']) (found under S$current)")
+                $slices[-1].Add("$prefix$($Matches['n']).$($Matches['m']) (found under $prefix$current)")
                 continue
             }
-            $slices[$current].Add("S$($Matches['n']).$($Matches['m'])")
+            $slices[$current].Add("$prefix$($Matches['n']).$($Matches['m'])")
         }
     }
 
     [pscustomobject]@{
         Slices  = $slices
         Landed  = @($landed)
+        Prefix  = $prefix
         Failure = $null
     }
 }
 
 function Get-IssueCriteria {
-    param([string] $Body)
+    param([string] $Body, [Parameter(Mandatory)][string] $Prefix)
     if ([string]::IsNullOrWhiteSpace($Body)) { return @() }
 
     $ids = [System.Collections.Generic.List[string]]::new()
     foreach ($line in ($Body -split "`r?`n")) {
-        if ($line -match '^\s*-\s*\[[ xX]\]\s*\*{0,2}S(?<n>\d+)\.(?<m>\d+)\*{0,2}') {
-            $ids.Add("S$($Matches['n']).$($Matches['m'])")
+        if ($line -match "^\s*-\s*\[[ xX]\]\s*\*{0,2}$Prefix(?<n>\d+)\.(?<m>\d+)\*{0,2}") {
+            $ids.Add("$Prefix$($Matches['n']).$($Matches['m'])")
         }
     }
     @($ids)
 }
 
 function Get-IssuePin {
-    param([string] $Body)
+    param([string] $Body, [Parameter(Mandatory)][string] $Prefix)
     if ([string]::IsNullOrWhiteSpace($Body)) { return $null }
     # The backtick after `.md` is not optional decoration: track.md's pin format is
     # `design/30-slices.md` § S3 @ `a1b2c3d`, so the path is code-fenced and the closing
     # fence sits between `.md` and the section mark. Omitting it here matched no real issue
     # at all - caught by the first CI run of this file's tests, not by reading it.
-    if ($Body -match '30-slices\.md`?\s*§\s*S(?<n>\d+)\s*@\s*`?(?<sha>[0-9a-fA-F]{7,40})`?') {
+    if ($Body -match "30-slices\.md``?\s*§\s*$Prefix(?<n>\d+)\s*@\s*``?(?<sha>[0-9a-fA-F]{7,40})``?") {
         return [pscustomobject]@{ Slice = [int]$Matches['n']; Sha = $Matches['sha'] }
     }
     $null
@@ -263,38 +291,40 @@ function Invoke-DriftCheck {
         return New-DriftResult -State 'NotEvaluated' -Failures $failures
     }
 
-    $landed = @($doc.Landed)
+    $prefix   = $doc.Prefix
+    $landed   = @($doc.Landed)
     $compared = 0
 
     foreach ($number in ($doc.Slices.Keys | Sort-Object)) {
         $docIds = @($doc.Slices[$number] | Sort-Object -Unique)
-        $issue  = $tracker.Issues | Where-Object { $_.title -match "^S$number\b" } | Select-Object -First 1
+        $issue  = $tracker.Issues | Where-Object { $_.title -match "^$prefix$number\b" } | Select-Object -First 1
 
         if (-not $issue) {
-            $findings.Add((New-Finding -Kind 'NoIssue' -Slice "S$number" -Detail 'slice has no issue; /track opens one' -Issue 0))
+            $findings.Add((New-Finding -Kind 'NoIssue' -Slice "$prefix$number" -Detail 'slice has no issue; /track opens one' -Issue 0))
             continue
         }
 
         $compared++
-        $issueIds = @(Get-IssueCriteria -Body $issue.body | Sort-Object -Unique)
+        $issueIds = @(Get-IssueCriteria -Body $issue.body -Prefix $prefix | Sort-Object -Unique)
 
         foreach ($id in ($docIds | Where-Object { $_ -notin $issueIds })) {
-            $findings.Add((New-Finding -Kind 'InDocNotIssue' -Slice "S$number" -Detail $id -Issue $issue.number))
+            $findings.Add((New-Finding -Kind 'InDocNotIssue' -Slice "$prefix$number" -Detail $id -Issue $issue.number))
         }
         foreach ($id in ($issueIds | Where-Object { $_ -notin $docIds })) {
-            $findings.Add((New-Finding -Kind 'InIssueNotDoc' -Slice "S$number" -Detail $id -Issue $issue.number))
+            $findings.Add((New-Finding -Kind 'InIssueNotDoc' -Slice "$prefix$number" -Detail $id -Issue $issue.number))
         }
     }
 
     # Landed slices carry no criteria in the doc by design - their bodies were retired once
     # their issues closed (design/30-slices.md, "How this document is kept"). Comparing ids
-    # for one would report every criterion as removed, so only the pin is checked.
-    foreach ($issue in $tracker.Issues) {
-        $pin = Get-IssuePin -Body $issue.body
+    # for one would report every criterion as removed, so only the pin is checked. A doc with
+    # no slice-shaped marker at all has no prefix to check issue pins against.
+    foreach ($issue in ($prefix ? $tracker.Issues : @())) {
+        $pin = Get-IssuePin -Body $issue.body -Prefix $prefix
         if (-not $pin) { continue }
 
         switch (Test-CommitIsAncestor -Sha $pin.Sha) {
-            'NotAncestor'  { $findings.Add((New-Finding -Kind 'PinNotAncestor' -Slice "S$($pin.Slice)" -Detail $pin.Sha -Issue $issue.number)) }
+            'NotAncestor'  { $findings.Add((New-Finding -Kind 'PinNotAncestor' -Slice "$prefix$($pin.Slice)" -Detail $pin.Sha -Issue $issue.number)) }
             'Unresolvable' { $failures.Add((New-Failure -Reason 'PinUnresolvable' -Detail "#$($issue.number) pins $($pin.Sha), which this clone cannot resolve")) }
         }
     }
