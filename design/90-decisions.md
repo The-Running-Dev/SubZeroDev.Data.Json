@@ -1955,6 +1955,12 @@ and removed likewise. Track them all there. O24 is answered by D41 above.
 The `Test-DesignDrift.ps1` S/J-prefix tooling defect was filed on 2026-08-29 as issue #72 and
 removed likewise.
 
+A third `Test-DesignDrift.ps1` doc-side parser defect, found on this 2026-08-30 `/track` run
+after #76 and #77 were already filed: the parser cannot tell a slice's `Done when` checklist
+entries from the historical, dropped-from-scope `J7.1`–`J7.5` bullets `design/30-slices.md`
+§J6 deliberately keeps on record (D67), and reports all five as stray ids belonging to the
+wrong slice. Filed as issue #81 and removed from this section likewise.
+
 The `/node` source-map reader item (D62/D63, U8) is removed from this section on 2026-08-08
 without being filed separately: `/slices` had already answered it by adding J13, tracked as
 issue #60.
