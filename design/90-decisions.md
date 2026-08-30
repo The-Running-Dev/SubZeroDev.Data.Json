@@ -1992,3 +1992,49 @@ Rejected: leaving the older wording in place, which would let this repo's copy o
 rule drift from the kit's and quietly stop mentioning the projected/declared distinction other
 kit-owned files (e.g. `.claude/COMPANIONS.md`) now depend on.
 Reversibility: cheap — a single-file edit, revertible from the prior commit.
+
+### 2026-08-30 — AGENTS.md re-install merge (kit `d57880d` → `5095a55`), four real forks decided
+Context: `/kit-sync` found `AGENTS.md`'s shared sections had drifted from the kit by more than
+the 12-commit delta between the two recorded sync shas — the target's copy predated the kit's
+own 2026-08-25 model-routing and git-delivery rewrite entirely, so a commit-range diff against
+`d57880d` understated the divergence and an initial merge proposal based on it had to be
+withdrawn and redone against the kit's current file directly. Four of the differences were
+forks with a real alternative rather than clean additions; the rest — a `/next` routing row,
+a missing `/install-code-review-agent` row, the `AGENTKIT_TIER` stamp-first resolution
+paragraph, the squash-merge force-delete delegation extension, and the new `## Writing a
+design-state record` section (this repo has `design/state/`, so it applies) — were additive
+with no target-specific content to conflict with, and are not logged as forks.
+Chosen, per fork:
+1. **Tier table** — adopted the kit's retirement of the "High volume" tier (haiku/low merged
+   into Implementation; the Codex `Luna` alias dropped). `/kit-help` and `/clean` move from
+   `haiku`/`low` to `sonnet`/`medium`.
+2. **Git delivery scope** — adopted the kit's generalization: no work lands on the default
+   branch ever (narrow exception for deterministic `design/state/work/` records already
+   checked by `tools/Test-DesignState.ps1`), and branch-create + commit + push + PR-open are
+   delegated for any session's work, not only `/slice`/`/fix`/`/pr`/`/install`.
+3. **`/code-review` defaults** — adopted the kit's change: default effort `high` rather than
+   reusing whatever level was last typed, and always pass `--fix` so findings are applied and
+   committed rather than only reported.
+4. **`/done` → `/clean` naming** — corrected two references (the Command routing row and the
+   branch-deletion bullet in *Git and delivery*) from `/done`/`done.md` to `/clean`/`clean.md`.
+   No `done.md` ever existed in this repo or in the kit's history under either name; the actual
+   file on disk was always `.claude/commands/clean.md`, self-titled `/clean` throughout. This
+   was stale text, not a deliberate rename — no decision-log entry recorded one.
+Rejected, per fork:
+1. Keeping the 4-tier table with `haiku`/`low` for `/kit-help` and `/clean` — the kit's own
+   decision log (`design/90-decisions.md`, kit, 2026-08-25) explains the retirement was driven
+   by that maintainer's Codex `Terra` session, which cannot be relaunched at a lighter tier
+   mid-session; this repo's driver is Claude, where a Haiku session is genuinely selectable, so
+   the kit's stated reason doesn't hold here — but the user chose to adopt the collapse anyway.
+2. Keeping the narrower delegation (commit+push once on a branch automatic; PR-open unasked
+   limited to 4 named commands) — would have required this same `/kit-sync` session to ask
+   before opening its own pull request, despite having already branched off `main` before the
+   first edit.
+3. Keeping `/code-review`'s current opt-in `--fix` and reuse-last effort — the more
+   conservative default, but the user chose auto-apply-and-commit as the default instead.
+4. Leaving the text as `/done` — plausible if a rename to `done.md` were planned and simply not
+   yet carried out, but no such intent is recorded anywhere.
+Reversibility: cheap for all four — text edits, revertible from the prior commit; fork 2's
+default-branch ban is the only one with an ongoing behavioural effect (this and future sessions
+branch and open PRs without asking), but it only enables actions already individually
+reversible (a branch, a PR) rather than making any of them irreversible.
