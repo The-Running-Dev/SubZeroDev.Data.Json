@@ -1927,17 +1927,8 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **`useJson().refetch()` can never return a fresh value against a `manual` cache policy.**
-  `src/react/use-json.ts:75` implements `refetch` as another `loader.loadById(id)`, and
-  `loadById` synthesizes a request from the map entry with no cache opt-out. Under a `manual`
-  policy the lookup hits every time, so `refetch()` re-renders with the cached value and issues
-  no transport — a no-op by construction, for the one call the API offers a component that
-  wants current data. Under `ttl` it is a no-op inside the window, which is at least
-  time-bounded. `20-contract.md` §9 declares `refetch(): Promise<void>` and says nothing about
-  what it refetches, and `10-design.md` names no semantics for it, so this is undetermined
-  rather than a contradiction. `cache: false` (D61) is the mechanism that would fix it, and it
-  is the flag's first real consumer — which is the concrete argument that kept D61 from
-  deleting it. Needs a decision on what `refetch` means before it needs code.
+The `useJson().refetch()` cache-policy semantics item was filed on 2026-09-01 as issue #85 and
+removed from this section likewise.
 
 The `Test-DesignDrift.ps1` doc-side checklist parser and pin-scoping defects found on 2026-08-30
 were filed as issues #76 and #77 and removed from this section likewise. Both surfaced only
