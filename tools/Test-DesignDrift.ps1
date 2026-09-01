@@ -143,14 +143,20 @@ function Get-SliceCriteria {
             continue
         }
 
-        if ($prefix -and $null -ne $current -and $line -match "^\s*-\s*(?:\[[ xX]\]\s*)?\*{0,2}$prefix(?<n>\d+)\.(?<m>\d+)\*{0,2}") {
+        if ($prefix -and $null -ne $current -and $line -match "^\s*-\s*(?<checkbox>\[[ xX]\]\s*)?\*{0,2}$prefix(?<n>\d+)\.(?<m>\d+)\*{0,2}") {
             if ([int]$Matches['n'] -ne $current) {
-                # An id numbered for a different slice than the section it sits in. Reported
-                # rather than silently filed under either, because it is a defect in the doc.
-                if (-not $slices.ContainsKey(-1)) {
-                    $slices[-1] = [System.Collections.Generic.List[string]]::new()
+                # An id numbered for a different slice than the section it sits in is only a
+                # doc defect when it is shaped like a Done when checklist entry (a checkbox).
+                # design/30-slices.md uses this same bold `- **id**` bullet, without a
+                # checkbox, to record a dropped-from-scope slice's criteria under another
+                # slice's heading on purpose (issue #81) - that is documentation, not a stray
+                # checklist item, and carries no id for either slice.
+                if ($Matches['checkbox']) {
+                    if (-not $slices.ContainsKey(-1)) {
+                        $slices[-1] = [System.Collections.Generic.List[string]]::new()
+                    }
+                    $slices[-1].Add("$prefix$($Matches['n']).$($Matches['m']) (found under $prefix$current)")
                 }
-                $slices[-1].Add("$prefix$($Matches['n']).$($Matches['m']) (found under $prefix$current)")
                 continue
             }
             $slices[$current].Add("$prefix$($Matches['n']).$($Matches['m'])")

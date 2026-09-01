@@ -265,14 +265,16 @@ None.
         }
 
         It 'a criterion numbered for another slice is unparseable, not silently filed' {
+            # Checklist-shaped (checkbox) so this exercises the stray check itself, not the
+            # dropped-scope carve-out the next test covers.
             $path = New-SlicesDoc -Content @'
 # Slices
 
 ## S1 — A slice
 
 Acceptance:
-  - S1.1 The first criterion.
-  - S2.4 Numbered for a slice this is not.
+  - [ ] S1.1 The first criterion.
+  - [ ] S2.4 Numbered for a slice this is not.
 '@ -Name 'stray.md'
             Mock Get-TrackerIssue { New-Tracker -Issues @(
                 New-Issue -Number 9 -Title 'S1 — A slice' -Body '- [ ] **S1.1** first'
@@ -282,6 +284,35 @@ Acceptance:
 
             $r.State | Should -Be 'NotEvaluated'
             $r.Failures.Reason | Should -Contain 'UnparseableCriterion'
+        }
+
+        It 'a bold bullet without a checkbox, numbered for another slice, is documentation - not a stray criterion' {
+            # design/30-slices.md's §J6 records J7's dropped-from-scope criteria this way,
+            # under J6's own heading, in the same `- **id**` shape a real checklist entry
+            # uses but without the checkbox (issue #81). It must not be reported as drift on
+            # either slice, and must not be counted as one of S1's own criteria either.
+            $path = New-SlicesDoc -Content @'
+# Slices
+
+## S1 — A slice
+
+### Done when
+
+- [ ] **S1.1** The first criterion holds.
+
+**S2, dropped from scope:**
+
+- **S2.1** Recorded here so the specification is not lost.
+'@ -Name 'dropped-scope.md'
+            Mock Get-TrackerIssue { New-Tracker -Issues @(
+                New-Issue -Number 9 -Title 'S1 — A slice' -Body '- [ ] **S1.1** first'
+            ) }
+
+            $r = Invoke-DriftCheck -SlicesPath $path
+
+            $r.State | Should -Be 'Clean'
+            $r.Findings.Count | Should -Be 0
+            $r.Failures.Count | Should -Be 0
         }
 
         It 'drift AND a failed comparison resolves to exit 2, never 1' {
