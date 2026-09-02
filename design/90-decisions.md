@@ -2029,3 +2029,15 @@ Reversibility: cheap for all four — text edits, revertible from the prior comm
 default-branch ban is the only one with an ongoing behavioural effect (this and future sessions
 branch and open PRs without asking), but it only enables actions already individually
 reversible (a branch, a PR) rather than making any of them irreversible.
+
+### 2026-09-02 — O1: useAuthenticatedFetch stays outside the loader's scope
+Context: J6.2 left retention-vs-composition open for `useAuthenticatedFetch`; issue O1 (#12)
+asked whether a second consumer needing authed loads makes the auth non-goal (`00-brief.md`
+§5.5) worth reopening.
+Chosen: No change. Auth flows (token acquisition/refresh) stay a non-goal. `useAuthenticatedFetch`
+remains retained outside the loader, per J6.2; the loader continues to accept a static `headers`
+value (I7) while the host owns obtaining and refreshing it.
+Rejected: Bringing 401-refresh into the loader's scope — no concrete second consumer exists yet
+(J7/`Portfolio/api` was dropped from scope by D67, J8/`Data` has no auth need, J9/`GameEngine`
+is deferred), so there is nothing to design against.
+Reversibility: cheap — revisit when an actual second consumer materializes.
