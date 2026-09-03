@@ -237,6 +237,22 @@ None.
             $r.Failures.Reason | Should -Contain 'PinUnresolvable'
             Get-DriftExitCode -State $r.State | Should -Be 2
         }
+
+        It 'a pin mentioned in narrative outside the agent block is not read as a live pin' {
+            # Issue #77: issue #72's own history section described J9's pin -
+            # "`design/30-slices.md § J9 @ cc2f9de` pin (repinned to 65fac12 ...)" - in prose,
+            # with no agent block at all, and the unscoped regex matched it anyway.
+            Mock Get-TrackerIssue { New-Tracker -Issues @(
+                New-Issue -Number 72 -Title 'A tooling defect, not a slice' `
+                    -Body "Fixed the pin check. It previously matched ``design/30-slices.md`` § S1 @ ``deadbee`` in prose like this sentence, with no agent block present at all."
+            ) }
+            Mock Test-CommitIsAncestor { 'NotAncestor' }
+
+            $r = Invoke-DriftCheck -SlicesPath $script:PinnedDoc
+
+            $r.Findings.Kind | Should -Not -Contain 'PinNotAncestor'
+            Should -Invoke Test-CommitIsAncestor -Exactly -Times 0
+        }
     }
 
     Context 'incomplete runs never report clean' {
@@ -321,7 +337,7 @@ Acceptance:
             $path = New-SlicesDoc -Content $script:TwoCriterionDoc -Name 'both.md'
             Mock Get-TrackerIssue { New-Tracker -Issues @(
                 New-Issue -Number 9 -Title 'S1 — A slice' `
-                    -Body "- [ ] **S1.1** first`n``design/30-slices.md`` § S1 @ ``deadbee``"
+                    -Body "- [ ] **S1.1** first`n<!-- agent:start -->`n``design/30-slices.md`` § S1 @ ``deadbee```n<!-- agent:end -->"
             ) }
             Mock Test-CommitIsAncestor { 'Unresolvable' }
 
