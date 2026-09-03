@@ -1,9 +1,14 @@
 # Contract — SubZeroDev.Data.Json
 
-Exact types and invariants. Rationale lives in `10-design.md`; this file is the reference
-an implementation is checked against.
+Invariants, error semantics, and the surface the tree cannot state. Rationale lives in
+`10-design.md`; this file is the reference an implementation is checked against.
 
 All types are exported from the core (`subzerodev-data-json`) unless a subpath is named.
+
+**Where a declaration exists in the tree, this file points at it rather than repeating it**
+(`AGENTS.md`, *Single ownership*). What each section carries is the part a declaration cannot
+express: which fields are meaningful under which state, what must never be normalised away,
+what a caller may not assume. §8, §10.1 and §10.2 are wholly of that kind and point at nothing.
 
 Sections §1–§9 keep their numbering and invariant ids from the 2026-08-06 draft.
 §10–§12 are appended. Amendments made in the 2026-08-07 pass are logged as
@@ -39,49 +44,36 @@ to assert. The same pass closes **U8** by declaring `/node`'s source-map reader 
 its signatures here; those signatures, the two-function split, and the added error code are
 D63, and they are this pass's one design decision rather than a transcription.
 
+The 2026-09-03 `/contract` pass does two things. It **replaces every scaffold with a pointer**
+to the file that now declares it (D69): §1–§7, §9 and §10 held full TypeScript declarations
+written before the code existed, every one of them since materialised, and a declaration written
+here *and* in the tree is the copy that rots. Nothing was decided by that replacement — what each
+section keeps is what a declaration cannot carry, and §8's invariants, §10.1 and §10.2 were
+untouched by it. It also **extends I32** (D70), which named the digest memoization but never the
+generation guard on its write; `10-design.md` §5 determines that guard and cites I32 for it, so
+the extension transcribes a fact this file had failed to carry rather than changing one.
+
 ## 1. Result
 
-```ts
-/** Unique within a source map, and across the public and server maps together (I23). */
-export type SourceId = string;
+`SourceId`, `Digest`, `ReasonCode`, `JsonMeta` and `JsonResult<T>` are declared in
+`src/core/types.ts`.
 
-/** Lowercase hex, 64 digits. Produced only by the core's canonical digest (I5). */
-export type Digest = `sha256-${string}`;
-
-export type ReasonCode =
-  | 'json.ok'
-  | 'json.transport'    // connection failed, DNS, refused, aborted by network
-  | 'json.status'       // response received, status not 2xx
-  | 'json.timeout'      // exceeded timeoutMs for one attempt
-  | 'json.parse'        // body was not valid JSON
-  | 'json.schema'       // parsed, failed the declared unwrap or validator
-  | 'json.notFound'     // file source: path does not exist
-  | 'json.tooLarge'     // body exceeded the declared maxBytes
-  | 'json.unresolved';  // no source declared for this id, or a malformed request
-
-export interface JsonMeta {
-  readonly id: SourceId;     // '' when the request carried no usable id
-  readonly provider: 'http' | 'file' | 'inline' | 'none';   // 'none' when nothing resolved
-  readonly location: string; // the location the bytes came from; '' when nothing resolved
-  readonly bytes: number;    // UTF-8 byte length as received; 0 for inline
-  readonly digest: Digest | null;   // null unless requested
-  readonly cached: boolean;
-  readonly attempts: number; // transport attempts; 0 for inline and for a cache hit
-  readonly validated: boolean;
-}
-
-export type JsonResult<T> =
-  | { readonly ok: true; readonly reason: 'json.ok'; readonly data: T; readonly meta: JsonMeta }
-  | {
-      readonly ok: false;
-      readonly reason: Exclude<ReasonCode, 'json.ok'>;
-      readonly message: string;  // human-facing detail; never load-bearing for control flow
-      readonly data: T | null;   // the fallback when one was declared, else null
-      readonly meta: JsonMeta;
-    };
-```
-
-`message` is for humans and logs. Control flow branches on `reason`.
+- **`SourceId` is the only identity in the system.** Unique within a source map, and across the
+  public and server maps together (I23). There is no second handle: no opaque token, no
+  per-request id, no cache key a caller can see or construct.
+- **`Digest`** is lowercase hex, 64 digits, and is produced only by the core's canonical digest
+  (I5). The template literal type constrains the prefix and nothing after it, so the digit count
+  and the alphabet are this statement's to carry, not the declaration's.
+- **`ReasonCode` is closed.** §10.2 owns when each variant is raised, whether the loader retries
+  it, and what the caller does about it. That table is the definition; the union is its shape.
+- **Every field of `JsonMeta` is derived** (`10-design.md` §1.3), never carried through from a
+  caller. `id` is `''` when the request carried no usable id. `bytes` is the UTF-8 byte length as
+  received and `0` for `inline`; `attempts` counts transport attempts made by *this* call and is
+  `0` for `inline` and for a cache hit (I11); `digest` is `null` unless requested; `validated` is
+  a property of the call and never of the cache entry (I10, I15).
+- **`JsonResult<T>` discriminates on `ok`.** `message` exists only on the failure arm, and
+  `data` there is the declared fallback or `null` — never a stale cached value (I19). Control
+  flow branches on `reason`; `message` is for humans and logs and is never load-bearing.
 
 `location` is `''` in two cases, not one: when nothing resolved, and for an `inline` source,
 which has no location to record. `provider` is what tells them apart — `'none'` against
@@ -90,21 +82,16 @@ it is holding.
 
 ## 2. Sources
 
-```ts
-export type JsonSource =
-  | { readonly kind: 'http'; readonly url: string; readonly headers?: Readonly<Record<string, string>> }
-  | { readonly kind: 'file'; readonly path: string }
-  | { readonly kind: 'inline'; readonly data: unknown };
+`JsonSource` and `SourceSpec` are declared in `src/core/types.ts`; `normalizeSource` in
+`src/core/config.ts`.
 
-/** Sugar accepted in configuration and normalized once, at construction. */
-export type SourceSpec = JsonSource | string;
+`normalizeSource` maps a string beginning `http://` or `https://` to an http source and every
+other string to a file source. **It never produces `inline`**, and must not learn to: a bare
+string is sugar for a *location*, and inline data is not a location — inferring one from the
+other is the payload-shape guessing `00-brief.md` §4 rules out. An inline source is declared in
+its object form or not at all.
 
-export function normalizeSource(spec: SourceSpec): JsonSource;
-```
-
-`normalizeSource` maps a string beginning `http://` or `https://` to `{ kind: 'http' }`
-and every other string to `{ kind: 'file' }`. It never produces `inline`; an inline source
-must be declared in its object form.
+A `SourceSpec` is normalized **once, at construction**, and never re-derived per read (I41).
 
 `inline` is the mechanism by which an `at: build` payload reaches a runtime call site:
 `prefetch` rewrites every `at: build` entry into an inline entry carrying the resolved data
@@ -112,50 +99,29 @@ must be declared in its object form.
 
 ## 3. Request
 
-```ts
-export type Unwrap = 'none' | 'subzerodev' | ((raw: unknown) => unknown);
+`Unwrap`, `CanonicalValue`, `Validator<T>`, `CachePolicy`, `RetryPolicy` and `JsonRequest<T>`
+are declared in `src/core/types.ts`.
 
-/** The value domain the canonical serializer accepts (I35). */
-export type CanonicalValue =
-  | null
-  | boolean
-  | string
-  | number                          // finite only; NaN and ±Infinity are rejected
-  | readonly CanonicalValue[]
-  | { readonly [key: string]: CanonicalValue | undefined };  // undefined-valued keys are filtered
-
-export type Validator<T> =
-  (raw: unknown) =>
-    | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly message: string };
-
-export type CachePolicy =
-  | { readonly kind: 'manual' }
-  | { readonly kind: 'ttl'; readonly ttlMs: number }   // requires a clock port
-  | { readonly kind: 'mtime' };                        // file sources only
-
-export interface RetryPolicy {
-  readonly attempts: number;                    // total attempts, not retries; >= 1
-  readonly delayMs: number;                     // > 0 requires a schedule port
-  readonly backoff?: 'fixed' | 'exponential';   // default 'fixed'
-  readonly jitter?: boolean;                    // requires an rng port; default false
-}
-
-export interface JsonRequest<T> {
-  readonly id: SourceId;
-  readonly source?: SourceSpec;      // ad-hoc; never cached, never joined (I16)
-  readonly fallback?: T;
-  readonly validate?: Validator<T>;
-  readonly cache?: false;            // caller-local opt-out; not cache-eligible (I17, I31)
-  readonly digest?: boolean;         // default false; always true at build
-}
-```
-
-`Unwrap`'s function form keeps returning `unknown`; `CanonicalValue` states the domain its
-return value must fall in, and the domain is enforced at runtime (I36), not by the type. A
-value outside it is `json.schema`, on every load and independently of `digest`. The same
-bound applies to an `inline` entry's `data`, which is the other way a value that never passed
-through `JSON.parse` reaches the pipeline.
+- **`Unwrap`'s function form keeps returning `unknown`**; `CanonicalValue` states the domain its
+  return value must fall in, and the domain is enforced at runtime (I36), not by the type. A
+  value outside it is `json.schema`, on every load and independently of `digest`. The same bound
+  applies to an `inline` entry's `data`, which is the other way a value that never passed
+  through `JSON.parse` reaches the pipeline.
+- **`CanonicalValue` admits finite numbers only** and filters `undefined`-valued object keys at
+  any depth. The type states the shape; I35 states what is rejected and that rejection is a
+  throw. The two are not interchangeable — a `Date` satisfies neither, but only I35 says so.
+- **`Validator<T>` may transform.** Its `value` is the consumer's, which is why the digest sits
+  before it and the cache line holds the pre-validation value (I15). A validator that throws is
+  caught and is `json.schema`, indistinguishable to the caller from one returning not-ok.
+- **`RetryPolicy.attempts` is total attempts, not retries**, and is at least 1 — `attempts: 1`
+  means one try and no retry. `delayMs` above zero requires a `schedule` port and `jitter`
+  requires an `rng` port, both checked at construction (I6). `backoff` defaults to `'fixed'`,
+  `jitter` to `false`.
+- **`CachePolicy`'s `ttl` requires a `clock` port**, and `mtime` is valid only on a file entry
+  — an `mtime` policy anywhere else is `config.invalidEntry` (I6, I25).
+- **`JsonRequest.cache` admits only `false`.** There is no `true` to write, because
+  participating is the default and the field exists solely to opt out (I17, I31).
+- **`JsonRequest.digest` defaults to false** and is always true at build.
 
 A request carries only what belongs to the caller. Everything that shapes the transport —
 `unwrap`, `headers`, `timeoutMs`, `retry`, `maxBytes`, and the cache policy — is declared
@@ -180,57 +146,29 @@ than a leak (`90-decisions.md` D61).
 
 ## 4. Ports
 
-```ts
-export interface FileSystemPort {
-  read(path: string): Promise<string>;
-  stat(path: string): Promise<{ readonly mtimeMs: number; readonly size: number }>;
-  watch?(path: string, onChange: () => void): () => void;   // returns an unsubscribe
-}
+`FileSystemPort`, `ScheduledWait`, `CacheEntry`, `CacheStore`, `JsonEvent` and `JsonPorts` are
+declared in `src/core/types.ts`.
 
-/** A cancellable wait. Cancelling settles nothing; it releases the timer. */
-export interface ScheduledWait {
-  readonly promise: Promise<void>;
-  cancel(): void;
-}
-
-export interface CacheEntry {
-  readonly data: unknown;      // frozen; post-unwrap, pre-validation (I15)
-  readonly source: JsonSource; // the declared source; compared on every lookup (I16)
-  readonly location: string;   // the location the bytes came from (I30)
-  readonly bytes: number;
-  digest: Digest | null;       // memoized on first request against this entry (I32)
-  readonly storedAt: number | null;   // null when no clock port was supplied
-  readonly stamp: { readonly mtimeMs: number; readonly size: number } | null;   // mtime only
-}
-
-export interface CacheStore {
-  get(key: string): CacheEntry | undefined;
-  set(key: string, entry: CacheEntry): void;
-  delete(key: string): void;
-  clear(): void;
-  readonly size: number;
-}
-
-export interface JsonEvent {
-  readonly id: SourceId;
-  readonly phase: 'resolve' | 'fetch' | 'parse' | 'unwrap' | 'validate' | 'cache';
-  readonly reason: ReasonCode;
-  readonly meta: JsonMeta;
-}
-
-export interface JsonPorts {
-  readonly fetch?: (url: string, init?: RequestInit) => Promise<Response>;
-  readonly fs?: FileSystemPort;
-  readonly clock?: () => number;                    // required by any ttl policy
-  readonly rng?: () => number;                      // required by any retry jitter
-  readonly schedule?: (ms: number) => ScheduledWait; // required by any timeout or delay
-  readonly cache?: CacheStore;
-  readonly log?: (event: JsonEvent) => void;
-}
-```
-
-No port is required in general. A port whose absence would silently disable a declared
-feature is a construction-time error instead (§10, I6).
+- **`FileSystemPort` is read-only, and must never acquire a write member.** The package is
+  read-only, and that member is the seam through which it would stop being
+  (`90-decisions.md` D19, `00-brief.md` §5.1). `watch` is optional and returns its own
+  unsubscribe, which is what `dispose` calls (I26).
+- **`ScheduledWait.cancel` settles nothing** — it releases the timer and leaves the promise
+  pending forever. A `cancel` that rejected would turn every abandoned wait into an unhandled
+  rejection; a `cancel` that resolved would be indistinguishable from the wait elapsing.
+- **`CacheEntry.data` is frozen, post-unwrap and pre-validation** (I15). `source` is the source
+  the entry was *declared* under and is compared on every lookup; `location` is where the bytes
+  came from and is recorded, never compared (I16, I30) — conflating them makes a redirecting
+  source miss forever. `digest` is the one mutable field, memoized under a generation guard on
+  first request against the entry (I32). `storedAt` is `null` where no clock port was supplied,
+  and `stamp` is populated under an `mtime` policy only; a null value of either is never a hit
+  (I25, I40).
+- **`CacheStore` is a store, not a policy.** It holds what it is given under opaque keys and
+  decides no expiry — every hit condition is I40's, evaluated before a `get`.
+- **`JsonPorts` requires nothing in general.** A port whose absence would silently disable a
+  declared feature is a construction-time error instead (§10, I6), never a downgrade: `fetch`
+  for an http entry, `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter,
+  `schedule` for a timeout or a non-zero delay.
 
 Cache keys are opaque to the caller and namespaced per loader instance (I29). A loader
 never calls `CacheStore.clear()`; `invalidate()` with no argument bumps that loader's
@@ -259,87 +197,57 @@ per-call rather than per-entry split I15 draws for `validated`.
 
 ## 5. Loader
 
-```ts
-export interface JsonLoader {
-  load<T>(request: JsonRequest<T>): Promise<JsonResult<T>>;
-  loadById<T>(id: SourceId): Promise<JsonResult<T>>;        // from the source map
-  loadMany(ids: readonly SourceId[]): Promise<Readonly<Record<SourceId, JsonResult<unknown>>>>;
+`JsonLoader` is declared in `src/core/types.ts`; `createJsonLoader` in `src/core/loader.ts`.
 
-  /** Resolve eagerly. Rejects with JsonError('preload.failed') if any id fails. */
-  preload(ids: readonly SourceId[]): Promise<void>;
+- **`load` and `loadById` differ only in where the request comes from** — the caller's, or
+  synthesized from the map entry. Neither branches on `at` (I9), and both are subject to I2:
+  no member of this interface except `preload` ever throws or rejects.
+- **`loadMany` never rejects** and returns a result per id. One unreachable source does not deny
+  the caller the other four; aggregating them into a single failure is what §4.3 rules out.
+- **`preload` is the only member that rejects.** Its guarantee is that every named id resolved
+  once, at the moment it was called; it does not extend past the cache policy that warmed it
+  (`90-decisions.md` D38). It resolves every id before failing and names all of them (I20).
+- **`invalidate()` with no id drops everything this loader owns, and nothing another owns**
+  (I29). It bumps an epoch rather than enumerating keys, which is why `CacheStore` needs no
+  enumeration member and why `clear()` is never called.
+- **`stats()` reports hits, misses, and entries only** — nothing about eviction or size
+  pressure. That limit is known and stated rather than an oversight (§12 U6).
+- **`dispose` is the only lifecycle member, and it is idempotent.** A watch is registered
+  lazily, on the first successful read of a file entry declaring an `mtime` policy, never at
+  construction, and every watcher a loader registered is unsubscribed here (I26). Disposal
+  belongs to whoever constructed the loader (`90-decisions.md` D31, I39);
+  `[Symbol.dispose]` is the same operation reached under `using`, not a second one.
 
-  invalidate(id?: SourceId): void;                          // all this loader owns when omitted
-  stats(): { readonly entries: number; readonly hits: number; readonly misses: number };
-
-  /** Unsubscribe every watcher, drop this loader's cache keys. Idempotent. */
-  dispose(): void;
-  [Symbol.dispose](): void;
-}
-
-export function createJsonLoader(sources: SourceMap, ports?: JsonPorts): JsonLoader;
-```
-
-`preload` is the only member that rejects. Its guarantee is that every named id resolved
-once, at the moment it was called; it does not extend past the cache policy that warmed it.
-
-`dispose` is the only lifecycle member. A watch is registered lazily, on the first
-successful read of a file entry declaring an `mtime` policy, and unsubscribed by `dispose`
-(I26).
+`createJsonLoader` takes the source map and the ports, and takes them **once**: the map is
+normalized at construction, and editing the object afterward changes no later load (I41). A
+changed map means a new loader.
 
 ## 6. Configuration
 
-```ts
-export type HttpCacheSpec = 'manual' | { readonly ttlMs: number };
-export type FileCacheSpec = 'manual' | { readonly ttlMs: number } | { readonly mtime: true };
+`HttpCacheSpec`, `FileCacheSpec`, `RetrySpec`, `SourceEntry` and `SourceMap` are declared in
+`src/core/types.ts`.
 
-export interface RetrySpec {
-  readonly attempts: number;
-  readonly delayMs: number;
-  readonly backoff?: 'fixed' | 'exponential';
-  readonly jitter?: boolean;
-}
+- **The three `SourceEntry` variants are narrowed by key presence** (`'url' in entry`), not by a
+  tag, and declaring more than one of `url`, `path`, `inline` is `config.invalidEntry`. The
+  `never` members are what make the union exclusive to a type checker only; a source map arriving
+  as YAML was never type-checked, so the runtime check is the one that binds — and it is the
+  core's, applied by `/node`'s reader rather than copied into it (I42).
+- **`at` and `cache` are both required, with no default for either** (`90-decisions.md` D3,
+  I31). `cache` is forbidden on an inline entry: nothing is transported, so a policy would
+  govern nothing. `version` other than `1` is `config.invalidEntry`.
+- **`headers` may be declared only in `sources.server.yml`** (I7). A type cannot express which
+  file an entry was read from, so this is enforced where the file is read and by the build gate,
+  never by the union.
+- **`timeoutMs` defaults to 10 000 ms and bounds each attempt, never the call** (I18) — a
+  three-attempt policy at that default can take thirty seconds, which is the declared meaning.
+  `retry` defaults to one attempt and no delay. `maxBytes` absent means unbounded (I27).
+- **`schema` is a name this package never resolves.** The consuming repository's registry
+  resolves it; schema authoring is a non-goal (`00-brief.md` §5.6).
+- **`unwrap` defaults to `'none'`**, and YAML can express only `'none'` and `'subzerodev'` —
+  the function form is reachable from code alone. Nothing is ever inferred from payload shape
+  (I4).
 
-interface SourceEntryCommon {
-  readonly at: 'build' | 'runtime';
-  readonly schema?: string;   // resolved by the consumer's schema registry
-  readonly unwrap?: Unwrap;   // default 'none'; YAML expresses only 'none' | 'subzerodev'
-}
-
-export type SourceEntry =
-  | (SourceEntryCommon & {
-      readonly url: string;
-      readonly headers?: Readonly<Record<string, string>>;  // server map only (I7)
-      readonly cache: HttpCacheSpec;                        // required; no default (I31)
-      readonly timeoutMs?: number;   // default 10_000; bounds each attempt (I18)
-      readonly retry?: RetrySpec;    // default { attempts: 1, delayMs: 0 }
-      readonly maxBytes?: number;    // unbounded when absent (I27)
-      readonly path?: never;
-      readonly inline?: never;
-    })
-  | (SourceEntryCommon & {
-      readonly path: string;
-      readonly cache: FileCacheSpec;                        // required; no default (I31)
-      readonly maxBytes?: number;
-      readonly url?: never;
-      readonly inline?: never;
-    })
-  | (SourceEntryCommon & {
-      readonly inline: unknown;
-      readonly url?: never;
-      readonly path?: never;
-      readonly cache?: never;        // nothing is transported; a policy would mean nothing
-    });
-
-export interface SourceMap {
-  readonly version: 1;
-  readonly sources: Readonly<Record<SourceId, SourceEntry>>;
-}
-```
-
-The three variants are narrowed by key presence (`'url' in entry`), not by a tag. Declaring
-more than one of `url`, `path`, `inline` is `config.invalidEntry`.
-
-On disk:
+On disk — the one shape here that no file in the tree carries:
 
 ```yaml
 # config/sources.public.yml
@@ -363,23 +271,15 @@ sources:
 
 ## 7. Lockfile
 
-Written by `/build` for every `at: build` source.
+`JsonLock` is declared in `src/core/types.ts`. Written by `/build` for every `at: build` source.
 
-```ts
-export interface JsonLock {
-  readonly version: 1;
-  readonly sources: Readonly<Record<SourceId, {
-    readonly location: string;   // where the bytes came from, not what was requested (I30)
-    readonly digest: Digest;
-    readonly bytes: number;
-  }>>;
-}
-```
-
-An entry carries these three fields and nothing else. In particular it carries **no
+An entry carries a location, a digest, and a byte count — and **nothing else**. `location` is
+where the bytes came from, not what was requested (I30). In particular an entry carries **no
 timestamp**: the lockfile is committed so that builds are comparable, and a wall-clock stamp
 makes every rebuild a diff, which is the one property the file is committed for (I21, D47).
-Anything derived from a clock belongs in build logs, not here.
+Anything derived from a clock belongs in build logs, not here. One field that legitimately
+differs run to run is enough to defeat the whole artifact, which is why this is a constraint on
+the shape and not merely on what is written into it.
 
 ## 8. Invariants
 
@@ -388,7 +288,11 @@ Each invariant is testable, and the test must fail when the invariant is removed
 I37 and I38 in the 2026-08-08 re-derivation, I39 with D53 later that day, and I40 and I41 in
 the re-derivation after it. I17 was **narrowed** in the pass after that (D61) and I40 extended
 with it; no id was added for either, because a correction to an existing invariant is not a new
-invariant. I42 was appended in the same pass, with D62 and D63.
+invariant. I42 was appended in the same pass, with D62 and D63. I32 was **extended** on
+2026-09-03 (D70) for the same reason and likewise without a new id.
+
+This section carries no declarations and points at none: an invariant is exactly the thing a
+type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouched.
 
 | | Invariant | Owner |
 |---|---|---|
@@ -423,7 +327,7 @@ invariant. I42 was appended in the same pass, with D62 and D63.
 | **I29** | One `CacheStore` handed to two loaders serves neither loader the other's entries, and `invalidate` on either leaves the other's entries intact. | core |
 | **I30** | `meta.location` and `JsonLock.sources[].location` record the location the bytes came from, not the location that was requested. | core, build |
 | **I31** | `cache` is required on every http and file entry and forbidden on an inline entry. There is no default cache policy. Omitting it is `config.invalidEntry` naming the id. | core |
-| **I32** | A `digest: true` request against an entry stored without one computes the digest from the cached value and memoizes it. It never re-transports, and never returns `digest: null` under `ok: true`. | core |
+| **I32** | A `digest: true` request against an entry stored without one computes the digest from the cached value and memoizes it. It never re-transports, and never returns `digest: null` under `ok: true`. The memo is written **under the same generation guard as any other store** (I17, D70): a caller that computed it after the entry's generation moved on — an `invalidate`, or a watch callback — writes nothing and leaves the entry's `digest` null, and still returns the digest it computed to its own caller, because the value it was computed from is the value that caller is being handed. The guard matters only where an await point separates the load from the memo; on a cache hit the lookup and the memo are one synchronous step, and there is no interleaving for it to lose. | core |
 | **I33** | `prefetch` emits a `SourceMap` in which every `at: build` entry has become an inline entry carrying the resolved data. A runtime loader constructed from it resolves those ids without any port, and `10-design.md` §3.1's pipeline never branches on `at`. The rewritten entry keeps `at` and `schema` and carries none of `unwrap`, `cache`, `maxBytes`, `timeoutMs`, or `retry`: the data is already unwrapped, and an inline entry transports nothing for any of them to govern (I31 forbids `cache` there outright). | build |
 | **I34** | An `unwrap: 'subzerodev'` envelope whose `success` is `false` yields `json.schema`, with the envelope's own error text in `message`. `ok: true` with `data: undefined` is unreachable. | core |
 | **I35** | The canonical serializer accepts exactly `CanonicalValue` (§3). At any depth it filters `undefined`-valued object keys, and rejects a non-finite number, a bare `undefined`, a `bigint`, a symbol, a function, and **any object that is not a plain record** — one whose prototype is neither `Object.prototype` nor `null`, such as a `Date`, `Map`, `Set`, `RegExp`, or class instance (D49). Rejection is a throw. The serializer is pure: it reaches no port and no ambient global. | core |
@@ -437,63 +341,32 @@ invariant. I42 was appended in the same pass, with D62 and D63.
 
 ## 9. Subpath Exports
 
-```ts
-// subzerodev-data-json/node
-export function nodeFileSystem(): FileSystemPort;
-export function nodePorts(overrides?: Partial<JsonPorts>): JsonPorts;
+Each subpath's public surface is what its `index.ts` re-exports, and nothing beyond it — a
+symbol exported from a module file but absent from that barrel is internal, whatever its
+visibility to a type checker. What each declaration cannot say:
 
-/** Structural, so /node depends on no web framework. Compatible with an Express handler. */
-export type JsonRouteHandler = (
-  req: { readonly method: string; readonly params: Readonly<Record<string, string>> },
-  res: { status(code: number): { json(body: unknown): void } },
-  next: (err?: unknown) => void
-) => void;
+| Export | Declared in | What the declaration cannot say |
+|---|---|---|
+| `nodeFileSystem` | `src/node/fs.ts` | Read-only, and stays so (§4, D19). Its `watch` is the real filesystem watcher `dispose` unsubscribes (I26) |
+| `nodePorts` | `src/node/ports.ts` | Composes a Node port set; every override replaces wholesale rather than merging into the composed one. Supplying `fetch` here still obliges `schedule` under I6's map-independent clause |
+| `JsonRouteHandler` | `src/node/router.ts` | **Structural on purpose**, so `/node` depends on no web framework — it must never be narrowed to an Express type. Compatible with an Express handler by shape alone |
+| `jsonRouter` | `src/node/router.ts` | **GET only.** It never forwards an upstream status (I28), and its failure body carries the field the core's `'subzerodev'` unwrap reads (I34, D45). Serves only the ids it was handed, never the whole map |
+| `envelope` | `src/node/envelope.ts` | The success half of the shape `jsonRouter` emits the failure half of; the two are kept agreeing by J2.5's round-trip test, not by proximity |
+| `convertYamlToJson` | `src/node/yaml.ts` | The CLI's core, reading **data**. Resolves the number it returns as a count of documents converted. The only place YAML meets runtime data; the runtime loader never sees it (`00-brief.md` §5.3) |
+| `parseSourceMap`, `readSourceMap` | `src/node/source-map.ts` | Configuration, not data. Validated against §6 by the core's own check before return, never a second copy of it (I42). Both return the **parsed** map, not a normalized one |
+| `JsonProvider`, `JsonProviderProps` | `src/react/context.tsx` | Accepts a loader and **never constructs one**, never disposes one on unmount (I39, D31). Nesting is how two loaders coexist in one tree, and the nearest wins |
+| `useJson` | `src/react/use-json.ts` | Widens a `JsonResult<T>` with `loading` and `refetch`. Reads its loader from the nearest provider and nowhere else; with none above it, throws `config.missingProvider` (I39). Unmounting suppresses the state update, it does not abort the request (D55) |
+| `JsonBoundary` | `src/react/json-boundary.tsx` | Renders from `reason`, never from `message` (`10-design.md` §4.2). Same provider requirement as `useJson` |
+| `zodValidator` | `src/zod/zod-validator.ts` | Adapts a zod schema to the core's `Validator<T>` seam and is the whole of `/zod`. Keeps zod out of the core, as an optional peer resolved by no other subpath |
+| `prefetch`, `PrefetchOutput` | `src/build/prefetch.ts` | Writes nothing until everything resolves, and names every failure rather than the first (I20). Its `runtimeMap` has every `at: build` entry rewritten to inline (I33); its loader is constructed over that half of the map alone (I8, D43) |
+| `assertNoServerSourcesInBundle` | `src/build/gates.ts` | Filename-scoped, deliberately (I7, D46). Must run after the last write into the public directory (I22) |
+| `assertNoDuplicateIds` | `src/build/gates.ts` | Compares **across** the two maps. The core cannot raise this and does not: duplicate keys within one map collapse before it sees them (I23) |
 
-export function jsonRouter(loader: JsonLoader, ids: readonly SourceId[]): JsonRouteHandler; // GET only
-export function envelope<T>(data: T): { readonly success: true; readonly data: T };
-export function convertYamlToJson(from: string, to: string): Promise<number>;    // CLI core
+`ReactNode` and `ReactElement` are React's own types, reached through the optional peer
+dependency; `/react` re-exports neither. `ZodType` is likewise zod's.
 
-/** Configuration, not data. Validated against §6 before it is returned (I42). */
-export function parseSourceMap(text: string): SourceMap;
-export function readSourceMap(path: string): Promise<SourceMap>;
-
-// subzerodev-data-json/react
-export interface JsonProviderProps {
-  readonly loader: JsonLoader;
-  readonly children: ReactNode;
-}
-
-/** Supplies the loader read by every hook and boundary below it. Accepts one; never constructs one. */
-export function JsonProvider(props: JsonProviderProps): ReactElement;
-
-export function useJson<T>(id: SourceId): JsonResult<T> & {
-  readonly loading: boolean;
-  refetch(): Promise<void>;
-};
-
-export function JsonBoundary(props: {
-  readonly id: SourceId;
-  readonly fallback?: ReactNode;
-  readonly children: ReactNode;
-}): ReactElement;
-
-// subzerodev-data-json/zod
-export function zodValidator<T>(schema: ZodType<T>): Validator<T>;
-
-// subzerodev-data-json/build
-export interface PrefetchOutput {
-  readonly lock: JsonLock;
-  readonly runtimeMap: SourceMap;   // at: build entries rewritten to inline (I33)
-}
-
-export function prefetch(map: SourceMap, outDir: string, ports: JsonPorts): Promise<PrefetchOutput>;
-export function assertNoServerSourcesInBundle(publicDir: string, serverMap: SourceMap): void;
-export function assertNoDuplicateIds(publicMap: SourceMap, serverMap: SourceMap): void;
-```
-
-`jsonRouter` mounts GET routes only. The package writes nothing at runtime
-(`00-brief.md` §5.1); `/build` writes with the Node runtime directly and the filesystem
-port stays read-only (`90-decisions.md` D19).
+The package writes nothing at runtime (`00-brief.md` §5.1); `/build` writes with the Node
+runtime directly and the filesystem port stays read-only (`90-decisions.md` D19).
 
 The `'subzerodev'` literal stays in the core because it is declared in configuration and
 the core reads configuration; `/node` owns the producer (`envelope`) for the success half
@@ -523,38 +396,23 @@ same configuration. Validating here as well is deliberate rather than redundant 
 check run earlier, so a malformed `at: runtime` entry is caught by a build that under I8 and D43
 never constructs a loader over those entries at all.
 
-`ReactNode` and `ReactElement` are React's own types, reached through the optional peer
-dependency; `/react` re-exports neither.
-
 ## 10. Error semantics
 
 Two vocabularies, both closed. `ReasonCode` (§1) is the outcome of a load and never throws.
 `JsonErrorCode` is the outcome of a misconfiguration or an eager resolution, and is the only
 thing this package throws or rejects with (I24).
 
-```ts
-export interface JsonFailure {
-  readonly id: SourceId;
-  readonly reason: ReasonCode;
-  readonly message: string;
-}
+`JsonFailure` and `JsonErrorCode` are declared in `src/core/types.ts`; `JsonError` in
+`src/core/errors.ts`.
 
-export type JsonErrorCode =
-  | 'config.missingPort'
-  | 'config.missingProvider'
-  | 'config.invalidEntry'
-  | 'config.unreadable'
-  | 'config.duplicateId'
-  | 'preload.failed'
-  | 'build.failed'
-  | 'build.serverSourceLeaked';
+`JsonError.failures` is **empty for every `config.*` code** — those name one entry inline in
+`message` instead, because a misconfiguration is one fault at one named site, where
+`preload.failed` and `build.failed` are aggregates whose whole point is naming all of them
+(I20). A caller may read `failures` unconditionally; it is never absent, only empty.
 
-export class JsonError extends Error {
-  readonly code: JsonErrorCode;
-  readonly failures: readonly JsonFailure[];   // empty for the config.* codes
-  constructor(code: JsonErrorCode, message: string, failures?: readonly JsonFailure[]);
-}
-```
+**The two tables below are this section's substance, and it points at nothing for them.** An
+error variant's name is in the tree; when it fires, whether it is retryable, and what the caller
+is expected to do about it are not, and cannot be.
 
 ### 10.1 `JsonErrorCode`
 
@@ -611,7 +469,7 @@ it — that section recorded it, this one is where it is answered. Gap 1 was U8,
 | **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
 | **U5** | **A concurrency bound for eager resolution** (`90-decisions.md` O5, O17). `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map as an assumption rather than a guarantee. `loadMany` takes a caller-sized array, which that assumption does not reach. No bound is specified, so none is contracted. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
-| **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive, removing one after publication is not, and 0.1.0 is unpublished. D44 routes the three the core index exports today to `/fix` for removal, precisely so this is decided against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
+| **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive and removing one after publication is not — and the package **is** published, at 0.2.0, so that asymmetry now has teeth it did not have when D44 first argued it against an unpublished 0.1.0 (`10-design.md` §2). D44's removal has since landed: `src/core/index.ts` exports none of the three, so the decision is made against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
 
 **U8 is resolved.** `/node` owns the reader (`90-decisions.md` D62), and §9 declares it as two
 functions: `parseSourceMap(text)` for the validation half and `readSourceMap(path)` for the file
