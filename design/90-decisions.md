@@ -2124,3 +2124,19 @@ Rejected: Bringing 401-refresh into the loader's scope — no concrete second co
 (J7/`Portfolio/api` was dropped from scope by D67, J8/`Data` has no auth need, J9/`GameEngine`
 is deferred), so there is nothing to design against.
 Reversibility: cheap — revisit when an actual second consumer materializes.
+
+### 2026-09-03 — O3: `stats()` eviction/size pressure — still no consumer
+Context: `20-contract.md` §12 U6 records `stats()` reporting only hits, misses, and entries as
+a known limit, to be revisited once a consumer cares about eviction or size pressure. Issue O3
+(#13) asked whether that point has arrived. Checked `src/core/loader.ts` and `src/core/types.ts`:
+the cache has no eviction or size-bound logic at all today, so there is nothing yet for `stats()`
+to report on that front. Checked `SubZeroDev.GameEngine` (the only prospective consumer, J9,
+deferred) directly: it has no reference anywhere to `subzerodev-data-json` or
+`@subzerodev/data-json`, confirming J9 genuinely hasn't started and nothing in that repo is
+exercising the cache.
+Chosen: No change. U6 stands as written. Revisit when J9 starts and GameEngine actually loads
+JSON through this package, or when any other consumer raises eviction or size pressure first.
+Rejected: Adding eviction/size-pressure tracking speculatively — there is no cache eviction
+mechanism to report on, and building one now would be designing against a consumer that does
+not yet exist.
+Reversibility: cheap — revisit when a real consumer's cache usage motivates it.
