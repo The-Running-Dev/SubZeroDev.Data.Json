@@ -2002,22 +2002,11 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-- **`src/core/types.ts`'s header comment states the doc/tree direction backwards.** It reads
-  "Exact types from 20-contract.md §1-§7, §10. The contract is authoritative; this file
-  transcribes it and adds no member the contract does not name." D69 reversed that: the contract
-  now points at this file for shape and carries only what a declaration cannot. A reader who
-  follows the comment back to `design/20-contract.md` looking for declarations finds pointers to
-  the file they started in. The fix is the comment, not the code — the declarations themselves
-  are unchanged and correct — and it is `/fix`'s, since `/contract` writes `design/` only.
+The `src/core/types.ts` header-comment-direction item was filed on 2026-09-03 as issue #96,
+fixed via PR #97, and removed from this section likewise.
 
-- **Resolve §12 U5 and state the eager fan-out ceiling as an invariant.** O5 is decided (entry
-  dated 2026-09-03 below): a fixed ceiling of 64 in the core, above the range the smallness
-  assumption claims, engaging only where that assumption is already violated. What remains is the
-  contract half and the code that follows it — U5 moves from open to resolved, an invariant states
-  the bound over `loadMany`, `preload` and `prefetch`, and `10-design.md` §5's closing paragraph
-  stops saying fan-out is unbounded. The amendment is `/contract`'s (`opus`, `high`); the code is
-  a slice or `/fix` afterwards, and wants a test asserting peak concurrency at the ceiling, since
-  a bound nothing measures is a bound nobody can tell regressed.
+The eager fan-out ceiling item (O5, decided in the 2026-09-03 entry below) was filed on
+2026-09-03 as issue #98 and removed from this section likewise.
 
 The `useJson().refetch()` cache-policy semantics item was filed on 2026-09-01 as issue #85 and
 removed from this section likewise.
