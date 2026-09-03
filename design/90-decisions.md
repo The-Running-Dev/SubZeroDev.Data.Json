@@ -2010,6 +2010,15 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
   the file they started in. The fix is the comment, not the code — the declarations themselves
   are unchanged and correct — and it is `/fix`'s, since `/contract` writes `design/` only.
 
+- **Resolve §12 U5 and state the eager fan-out ceiling as an invariant.** O5 is decided (entry
+  dated 2026-09-03 below): a fixed ceiling of 64 in the core, above the range the smallness
+  assumption claims, engaging only where that assumption is already violated. What remains is the
+  contract half and the code that follows it — U5 moves from open to resolved, an invariant states
+  the bound over `loadMany`, `preload` and `prefetch`, and `10-design.md` §5's closing paragraph
+  stops saying fan-out is unbounded. The amendment is `/contract`'s (`opus`, `high`); the code is
+  a slice or `/fix` afterwards, and wants a test asserting peak concurrency at the ceiling, since
+  a bound nothing measures is a bound nobody can tell regressed.
+
 The `useJson().refetch()` cache-policy semantics item was filed on 2026-09-01 as issue #85 and
 removed from this section likewise.
 
@@ -2192,3 +2201,59 @@ question of which functions J9.1 makes public here — `canonicalize` alone, or 
 
 Reversibility: cheap. A test block and a decision entry; no source, contract, or persisted format
 changed.
+
+### 2026-09-03 — O5: eager fan-out gets a ceiling above the assumption, not a knob
+Context: `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map
+as an assumption rather than a guarantee; `20-contract.md` §12 U5 holds the question open. Issue
+O5 (#15) asked whether a bound is owed. All three eager paths were read and are the same shape —
+`Promise.all(ids.map(...))` in `loadMany` and `preload` (`src/core/loader.ts`) and in `prefetch`
+(`src/build/prefetch.ts`).
+
+Two things the issue asserts were checked rather than repeated. The failure surface is real but
+narrower than "silent": `fetchFileCore` maps any non-`ENOENT` throw from the filesystem port to
+`json.transport` (`src/core/pipeline.ts`), so an `EMFILE` arrives under the same reason code as a
+genuine upstream outage, carrying the OS message. The cost is a misclassified diagnosis, not lost
+or wrong data. And probe F11's 200-simultaneous-reads measurement is against `fakeFs`, an
+in-memory counter — it establishes the shape (N ids open N reads at once), not a real descriptor
+exhaustion; the threshold where that becomes `EMFILE` is a property of the host, not of this
+package.
+
+The assumption also does not cover what it is cited for. `preload` and `prefetch` resolve
+*declared* entries and are bounded by a hand-written configuration file, so the smallness argument
+holds for them. `loadMany` takes a caller-sized array the argument never reaches, which is the
+whole of U5 and the half D17 did not address.
+
+Chosen: a fixed ceiling in the core, set above the range the assumption itself claims — a source
+map small enough to be hand-written — so that it engages only where `10-design.md` §5's stated
+assumption has already been violated. 64 is the value: above any plausible hand-written map,
+below every host descriptor limit worth naming. Below the ceiling, behaviour is identical to
+today; above it, the fan-out becomes batches rather than a descriptor storm. It is not a
+configuration knob and asks the caller no question.
+
+Rejected: adding a `concurrency` option to the loader factory. It is tunable and explicit, but it
+is a new public interface — `/contract`'s pass, which issue #15 names as its own stop condition —
+and it puts a resource question into configuration that the caller usually cannot answer either,
+since the ceiling belongs to whatever the port is made of and not to the source map.
+
+Rejected: deciding no bound at all and contracting the unboundedness — stating that `loadMany`
+promises exactly `ids.length` concurrent loads, that the array *is* the knob, and that a port with
+a resource ceiling enforces it in the port. This is the most honest account of where the knowledge
+lives: the core cannot know whether a `FileSystemPort` is a real filesystem, an in-memory map, or
+an object store, and only the port's owner knows its ceiling. It was rejected because it leaves
+the misclassified `json.transport` diagnosis in place and rests the whole protection on a caller
+reading the contract, which is the assumption U5 exists to stop relying on.
+
+Rejected: bounding inside `/node`'s filesystem port alone, where the descriptors actually are.
+It composes and needs no core change, but it protects only the port this package happens to ship —
+the `fetch` port and every caller-supplied `fs` port stay unprotected, and the core's `loadMany`
+stays a footgun for consumers that never touch `/node`.
+
+Requires a contract amendment, not made here. §12 U5 records that no bound is specified and
+therefore none is contracted; a ceiling changes peak concurrency, which is observable, so the
+resolution of U5 and the invariant stating the bound are `/contract`'s to write, and the code
+follows that. Issue #15's own stop condition says so. The implementation is staged in `## Open`
+above rather than performed here.
+
+Reversibility: cheap — a constant and a decision entry. Nothing is persisted and no public
+signature changes, so raising, lowering, or removing the ceiling later is a one-line change plus
+the amendment that describes it.
