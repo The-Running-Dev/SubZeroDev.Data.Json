@@ -2140,3 +2140,55 @@ Rejected: Adding eviction/size-pressure tracking speculatively — there is no c
 mechanism to report on, and building one now would be designing against a consumer that does
 not yet exist.
 Reversibility: cheap — revisit when a real consumer's cache usage motivates it.
+
+### 2026-09-03 — O4: the engine cross-check becomes pinned vectors here, not cross-repo CI
+Context: I13 pins this package's canonical serializer to
+`src/engine/src/core/persistence/canonical.ts` in `SubZeroDev.GameEngine`, cross-checked until
+J9 deletes the engine's copy. D39 performed that check once, by hand, at `f7d8f59` (2026-07-28).
+Issue O4 (#14) recorded that the check has no automation, is a manual wiring problem across two
+repositories, and will rot silently if J9 stays far out.
+
+The check was re-run before deciding, at `b7e21e7` (2026-09-03). The engine's `canonical.ts` has
+changed once since D39 read it, at `d3f0a20` (2026-08-11), and that change added a `sha256Hex`
+export and nothing else: `write()` is byte-identical to `f7d8f59`, and `canonical.test.ts` is
+unchanged outright. Both serializers were run side by side over the engine's seven vectors plus
+D39's JSON-domain edges and D49's non-plain-object cases — 37 in all: 25 byte-identical, 6
+rejected by both, 6 rejected by this package alone (`Date`, `Map`, `Set`, `RegExp`, a class
+instance, and a nested `Date`), 0 where this package is looser, 0 byte mismatches. I13 holds as
+D49 words it.
+
+Two things that re-run made visible. Running it is mechanical — clone, strip two import lines,
+compare 37 vectors — which is `AGENTS.md`'s red category: work that should leave the model
+entirely. And `harness/probes-real.mjs` F10 already claims the byte-identity check lives in
+`src/core/canonical.test.ts` "against the engine's own recorded test vectors"; it did not. The
+tests there asserted this package's own behaviour, overlapping the engine's vectors in substance
+but carrying none of the engine's expected strings, and none of its deep-sort or round-trip
+vectors at all.
+
+Chosen: the cross-check's durable form is the engine's vectors, with the engine's measured
+output strings, pinned in `src/core/canonical.test.ts` under a block naming I13 and the SHA they
+were read at — plus one assertion of D49's permitted asymmetry as a direction, since the engine's
+serializer cannot be executed from this repository. It runs on every push through the gate that
+already exists, needs no second repository at test time, and retires at J9.1 with I13 itself. The
+duplication with the blocks above it is deliberate and the comment says so: an expectation
+carrying the engine's bytes makes a "simplification" of it visibly a change to what I13 promises.
+This also makes F10's standing claim true rather than overstated.
+
+Rejected: a scheduled CI job that clones the engine and alarms on drift. It is the only option
+that detects the engine moving, which is the one direction pinned vectors cannot see — but the
+alarm has no action attached before J9, because J9.1 deletes the engine's copy and therefore
+cannot be done without re-reading it. Structurally, the re-verification is guaranteed at the
+moment it matters, and buying early warning costs a standing dependency on another repository's
+HEAD from a gate that is supposed to be offline and deterministic.
+
+Also rejected: recording "no automation, revisit at J9" and stopping, which is what the measured
+drift rate — zero semantic change in five weeks — would on its own support. It leaves the check
+as a thing only a model can perform, re-derived from scratch each time, which is how it rots; and
+it leaves F10's claim overstated with nothing to make it true.
+
+Noted, not acted on: the engine grew its own `sha256Hex` at `d3f0a20`. §12 U7 already holds the
+question of which functions J9.1 makes public here — `canonicalize` alone, or `digestOf` and
+`sha256Hex` with it — and this is evidence for that question, not a new one.
+
+Reversibility: cheap. A test block and a decision entry; no source, contract, or persisted format
+changed.
