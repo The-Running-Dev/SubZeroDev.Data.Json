@@ -187,11 +187,20 @@ function Get-IssueCriteria {
 function Get-IssuePin {
     param([string] $Body, [Parameter(Mandatory)][string] $Prefix)
     if ([string]::IsNullOrWhiteSpace($Body)) { return $null }
+
+    # A pin is a declaration, made inside the agent instructions block - never a fact read
+    # out of narrative that merely talks about one. Issue #72's own history section once
+    # matched here ("`design/30-slices.md § J9 @ cc2f9de` pin (repinned to ...)") even though
+    # it carries no agent-block pin at all (issue #77). Scoping to the region between the two
+    # marker comments is the fix; parsing the fence itself further is out of scope.
+    $block = [regex]::Match($Body, '(?s)<!--\s*agent:start\s*-->(?<block>.*?)<!--\s*agent:end\s*-->')
+    if (-not $block.Success) { return $null }
+
     # The backtick after `.md` is not optional decoration: track.md's pin format is
     # `design/30-slices.md` § S3 @ `a1b2c3d`, so the path is code-fenced and the closing
     # fence sits between `.md` and the section mark. Omitting it here matched no real issue
     # at all - caught by the first CI run of this file's tests, not by reading it.
-    if ($Body -match "30-slices\.md``?\s*§\s*$Prefix(?<n>\d+)\s*@\s*``?(?<sha>[0-9a-fA-F]{7,40})``?") {
+    if ($block.Groups['block'].Value -match "30-slices\.md``?\s*§\s*$Prefix(?<n>\d+)\s*@\s*``?(?<sha>[0-9a-fA-F]{7,40})``?") {
         return [pscustomobject]@{ Slice = [int]$Matches['n']; Sha = $Matches['sha'] }
     }
     $null
