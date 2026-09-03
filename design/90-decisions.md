@@ -1985,6 +1985,95 @@ memo. Nothing covers the guarded fresh-load commit — no test fails if the guar
 
 ---
 
+## D71 — The eager fan-out ceiling is per call, not per loader (2026-09-03)
+
+**Context.** The 2026-09-03 O5 entry decided a fixed ceiling of 64 on eager resolution and left
+the amendment to `/contract`. Writing it as an assertable invariant forced a question O5 does not
+answer in so many words: whether 64 bounds one call to `loadMany`, `preload`, or `prefetch`, or
+bounds the loader across all calls in flight. The two differ observably — under a loader-wide
+bound, two concurrent forty-id calls throttle each other though neither reaches the ceiling.
+
+**Chosen.** Per call. O5's own terms fix it there: the entry's guarantee is that "below the
+ceiling, behaviour is identical to today", and a loader-wide semaphore breaks exactly that in the
+case where both calls are individually below it. The bound therefore engages only where a single
+caller-sized array has already violated `10-design.md` §5's smallness assumption, which is the
+condition O5 chose it for. Stated as `20-contract.md` I43.
+
+**Rejected.** A loader-wide semaphore. It is the strictly stronger bound and the one that would
+actually cap a process's descriptor use, which is the honest argument for it. It was rejected
+because it makes one call site's latency depend on an unrelated concurrent call — the same
+property `10-design.md` §5 refuses for the in-flight join and §1.4 refuses for cache policy — and
+because it converts a stateless constant into per-loader scheduling state, which is a larger
+change than O5 priced.
+
+**Not fixed here.** The ceiling lowers the odds of a descriptor exhaustion; it does not change how
+one is reported. An `EMFILE` still arrives as `json.transport` (the O5 entry's own correction),
+and I43 says so rather than letting the bound imply more than it buys.
+
+**Test obligation, not discharged here.** No test asserts peak concurrency at the ceiling, and no
+code implements it — both are the slice or `/fix` that follows, per issue #98. A bound nothing
+measures is a bound nobody can tell regressed.
+
+**Reversibility:** cheap. A constant and an invariant; nothing persisted, no signature changed.
+
+---
+
+## D72 — The public/server content scan matches URLs and header values, never header names (2026-09-03)
+
+**Context.** D46 stated that the gate's guarantee is filename-scoped and filed the widening as
+issue #37, naming the two things a widening needs and that reconcile had no business setting: what
+counts as a match once a bundler has minified, escaped, or split the string, and what a false
+positive does to a build. `headers` is `Readonly<Record<string, string>>`, so `sources.server.yml`
+carries header names and values literally; four things from a server entry could reach the public
+output, and the id is already covered by I7.
+
+**Chosen.** Scan the public output's bytes for each server entry's `url` — whole, and as its
+origin-and-path prefix, so a rewritten query string still trips — and for each declared header
+**value** of at least 8 characters, with common JSON and JS string escaping normalised first. Any
+hit fails the build as `build.serverSourceLeaked`, with no suppression mechanism and no severity
+below failure, and the message names the id, the file, and the class that matched but never the
+matched text. Stated as `20-contract.md` I44; I7 keeps the filename half unchanged.
+
+The two halves of #37's question turn out to be one. Header names are the only candidate that
+collides — `Authorization` ships inside any HTTP client in the bundle — and simultaneously the
+only one whose presence is not a leak, a name being no secret. Excluding them removes essentially
+every coincidental match, which is why no escape hatch is owed: the hatch exists to manage false
+positives, and the rule no longer produces them. The 8-character floor is the same argument at the
+other end, keeping `true` and `json` out of the match set.
+
+The scan's limit is contracted rather than implied: it catches **accidental** inlining and not an
+adversary. An occurrence split across concatenation, base64-encoded, or otherwise transformed
+passes clean, and no scan over output bytes can change that. This is D46's move — state what the
+gate proves rather than what the invariant claims — applied at the wider scope, instead of
+re-inflating I7 into a guarantee the implementation still cannot make.
+
+**Rejected.** Scanning header names too, with a per-entry opt-out declared in the source map. It
+catches strictly more, but it adds public configuration surface to §6 for a security decision that
+gets set once during a false alarm and is never revisited — a gate with an off switch reachable
+from the file it guards.
+
+**Rejected.** Scanning header names with no opt-out at all. Simplest to state, and it was rejected
+because a coincidental `Authorization` match then blocks a release with no remedy but editing the
+source map, which is how a gate gets deleted rather than fixed.
+
+**Rejected.** Two severities — URL and value matches failing, name matches warning. It keeps the
+broad coverage without the release-blocking false positive, but it splits the gate's meaning in
+two and demotes a finding to CI output nobody reads, which is where the surviving leak would land.
+
+**Not decided here.** The message never printing matched text is a constraint on a failure path,
+not a new export; `assertNoServerSourcesInBundle`'s signature is unchanged, so no public interface
+is added and #37's stop condition is not reached.
+
+**Test obligation, not discharged here.** The scan is unimplemented. Under `AGENTS.md`
+*Verification*, it is not done until it has rejected something: positive cases for an inlined URL
+and an inlined header value, and negative cases for a sub-8-character value and a bare header
+name, with the counts stated.
+
+**Reversibility:** cheap while unimplemented. Once shipped, tightening the rule is additive and
+loosening it is a build that starts passing, so the direction that costs is loosening.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
