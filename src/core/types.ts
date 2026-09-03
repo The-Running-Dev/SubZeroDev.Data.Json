@@ -1,5 +1,5 @@
-// Exact types from 20-contract.md §1-§7, §10. The contract is authoritative; this file
-// transcribes it and adds no member the contract does not name.
+// Declares the types for 20-contract.md §1-§7, §10. The contract points here for shape and
+// carries only what a declaration cannot: invariants, semantics, and caller constraints.
 
 // ---------------------------------------------------------------------------------- §1 Result
 
