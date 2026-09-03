@@ -207,6 +207,12 @@ per-call rather than per-entry split I15 draws for `validated`.
 - **`preload` is the only member that rejects.** Its guarantee is that every named id resolved
   once, at the moment it was called; it does not extend past the cache policy that warmed it
   (`90-decisions.md` D38). It resolves every id before failing and names all of them (I20).
+- **Eager resolution is bounded, per call, at 64 loads in flight** (I43). `loadMany` and
+  `preload` take a caller-sized array, and the ceiling is what stands in for the smallness
+  the source map is assumed to have and the array never promises (`90-decisions.md` O5).
+  Below it nothing changes; above it the fan-out batches. It is a fixed constant and never a
+  parameter — no member here accepts a concurrency argument, and adding one is a contract
+  amendment, not a configuration change.
 - **`invalidate()` with no id drops everything this loader owns, and nothing another owns**
   (I29). It bumps an epoch rather than enumerating keys, which is why `CacheStore` needs no
   enumeration member and why `clear()` is never called.
@@ -289,7 +295,9 @@ I37 and I38 in the 2026-08-08 re-derivation, I39 with D53 later that day, and I4
 the re-derivation after it. I17 was **narrowed** in the pass after that (D61) and I40 extended
 with it; no id was added for either, because a correction to an existing invariant is not a new
 invariant. I42 was appended in the same pass, with D62 and D63. I32 was **extended** on
-2026-09-03 (D70) for the same reason and likewise without a new id.
+2026-09-03 (D70) for the same reason and likewise without a new id. I43 was appended later
+that day, resolving §12 U5 (O5) — a new id, because a bound where none was contracted is a new
+invariant rather than a correction to one.
 
 This section carries no declarations and points at none: an invariant is exactly the thing a
 type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouched.
@@ -338,6 +346,7 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I40** | A lookup is a hit only where I16's source comparison passes **and** the entry's declared policy admits it. `manual` admits any stored entry, until `invalidate` drops it. `ttl` admits an entry whose `storedAt` is non-null and for which `clock() - storedAt < ttlMs` — the window is half-open, so an entry exactly at `ttlMs` has expired, and an entry stored without a clock is never a hit. `mtime` admits an entry whose stored `(mtimeMs, size)` equals the stamp taken before this read, with a null stamp on either side never a hit (I25). Everything else is a miss, and it is a miss that §5's in-flight join is checked against. A read that is not cache-eligible (§3) evaluates none of these conditions: it performs no lookup at all, so it is neither a hit nor the kind of miss I17's join is reached from (D61). | core |
 | **I41** | A loader normalizes its `SourceMap` once, at construction. The set of ids it can resolve, and each entry's normalized source, `unwrap`, cache policy, timeout, retry, and `maxBytes`, are fixed for that loader's life: adding, removing, or editing an entry in the `SourceMap` object after `createJsonLoader` returns changes no later load, and normalization is never re-derived per read. A changed source map means a new loader, which is what makes the map a construction input rather than mutable state the cache would have to track. | core |
 | **I42** | `parseSourceMap` and `readSourceMap` accept exactly the maps `createJsonLoader` accepts and reject exactly the ones it rejects, because they apply the core's own entry check by relative import into `src/core/` rather than a second copy of §6's rules (D62, I37). The reader adds one check the core's cannot make, because the core's input is already typed: that the parsed document is an object carrying a `sources` record. Every failure out of either is a `JsonError` (I24) — `config.unreadable` where the bytes could not be obtained, `config.invalidEntry` for everything else, and never a `YAMLException` or a bare `TypeError`. | node |
+| **I43** | Eager resolution holds at most **64** loads in flight at once. The bound is **per call**: one call to `loadMany`, `preload`, or `prefetch` starts a further id's load only once an earlier one has settled, so `n` ids reach a peak of `min(n, 64)` simultaneous port calls rather than `n`. It is deliberately **not** a per-loader or per-process semaphore — two concurrent `loadMany` calls may reach 128 in flight, and that is the honest limit of what this bounds. A shared gate would change behaviour below the ceiling, where the smallness assumption still holds and nothing is wrong; this ceiling engages only where a single caller-sized array has already violated it (`90-decisions.md` O5). Batching changes nothing else: results keep caller order, `loadMany` still never rejects (§5), every id is still resolved before failing with every failure named (I20), and each resolved id still emits exactly one event (I38). The ceiling is a fixed constant and never a parameter — no member of `JsonLoader` and no `prefetch` argument accepts one, which is what makes it a bound rather than a knob. Asserted by a test measuring peak simultaneous port calls, which fails when the bound is removed. | core, build |
 
 ## 9. Subpath Exports
 
@@ -460,16 +469,24 @@ than a protocol.
 
 ## 12. Unresolved
 
-Four items the design does not determine. Each blocks the work named; none is invented here.
+Three items the design does not determine. Each blocks the work named; none is invented here.
 U7 is `30-slices.md`'s "contract gaps this pass surfaced" 2, moved to the register that owns
 it — that section recorded it, this one is where it is answered. Gap 1 was U8, below.
 
 | | Item | Blocks |
 |---|---|---|
 | **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
-| **U5** | **A concurrency bound for eager resolution** (`90-decisions.md` O5, O17). `10-design.md` §5 states fan-out is unbounded and records the smallness of a source map as an assumption rather than a guarantee. `loadMany` takes a caller-sized array, which that assumption does not reach. No bound is specified, so none is contracted. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
 | **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive and removing one after publication is not — and the package **is** published, at 0.2.0, so that asymmetry now has teeth it did not have when D44 first argued it against an unpublished 0.1.0 (`10-design.md` §2). D44's removal has since landed: `src/core/index.ts` exports none of the three, so the decision is made against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
+
+**U5 is resolved.** Eager resolution is bounded at 64 loads in flight per call — a fixed
+ceiling in the core, not a configuration knob (`90-decisions.md` O5, 2026-09-03, which names
+the `concurrency`-option, contract-the-unboundedness, and bound-it-inside-`/node` alternatives
+and why each was rejected). I43 states the bound, what it deliberately does not cover, and what
+batching leaves unchanged; §5 records it on the loader's surface. The ceiling sits above any
+plausible hand-written source map, so it engages only where a caller-sized array has already
+violated the smallness `10-design.md` §5 assumes — below it, behaviour is what it always was.
+The id is retired, not reused.
 
 **U8 is resolved.** `/node` owns the reader (`90-decisions.md` D62), and §9 declares it as two
 functions: `parseSourceMap(text)` for the validation half and `readSourceMap(path)` for the file
