@@ -1910,6 +1910,81 @@ also be reported upstream so future kit-sync targets don't hit the same red CI.
 
 ---
 
+## D69 — `20-contract.md`'s scaffolds become pointers to the declaring files (2026-09-03)
+
+**Context.** `20-contract.md` §1–§7, §9 and §10 carried full TypeScript declarations — roughly
+250 lines of them. That was correct when they were written: before the code existed there was
+nowhere else for shape to live, and `.claude/commands/contract.md` § *Semantics, not shape*
+provides for exactly that, as a **scaffold** the materialising slice replaces with a pointer in
+the same commit. Every one of those declarations has since been materialised — `src/core/types.ts`
+carries §1–§7 and §10, `src/core/errors.ts` carries `JsonError`, and the four leaf `index.ts`
+barrels carry §9 — and no slice performed the replacement. So the declarations stood twice, and
+`AGENTS.md` *Single ownership* names which of the two copies rots: the document's, because the
+code is executed and the prose is not. `src/core/types.ts`'s own header comment ("The contract is
+authoritative; this file transcribes it") records the direction the two copies had settled into.
+
+**Chosen.** Each section names the file that declares its types and then states only what a
+declaration cannot: which fields are meaningful under which state, what must never be normalised
+away, what a caller may not assume. §9 becomes a table of export → declaring file → constraint.
+§8's invariants and §10.1/§10.2's error tables were left untouched and point at nothing — an
+invariant, and when an error fires and what the caller does about it, are exactly the things a
+type cannot state. Nothing was decided by the replacement; every retained sentence was already in
+the file or already in the tree.
+
+**Rejected.** Leaving the scaffolds, which is free and keeps the document readable standalone —
+but it is two copies of every declaration with the rotting one presented as authoritative, and
+the loop that produces is the one `AGENTS.md` *The design freeze* exists to escape: a document
+restating the tree makes every reconciliation generative rather than a check. Also rejected:
+filing the divergence to `## Open` and deciding it later, which defers a correction the command
+that owns this file is chartered to make.
+
+**Known cost, accepted.** J9 is the one remaining slice and its implementer reads this document;
+a pointer into a 700-line `src/core/types.ts` is less immediate than an inline declaration was.
+The trade is that the pointer cannot go stale and the declaration could.
+
+**Consequence not carried here.** `src/core/types.ts`'s header comment now states the direction
+backwards. Correcting it is a code edit, and `/contract` writes `design/20-contract.md` only —
+it is routed to `/fix`, not absorbed.
+
+**Reversibility:** cheap mechanically — the removed blocks are in git history and, verbatim, in
+the tree they now point at. Expensive as policy: it settles where shape lives for this repository,
+and re-inlining would reintroduce the two copies deliberately.
+
+---
+
+## D70 — I32 states the generation guard on the digest memo (2026-09-03)
+
+**Context.** `10-design.md` §5 determines that a memoized digest is "written back **under the
+same generation guard**, so an invalidate that landed meanwhile is not clobbered", citing
+`20-contract.md` I32 and I17 as carrying it. Neither did. I32 named the memoization and said
+only that it never re-transports and never returns `digest: null` under `ok: true`; I17's guard
+sentence is about a *load* comparing its generation before storing its result, which is a
+different write. `src/core/pipeline.ts` implements the guard (a `cache.commit` under the token
+captured before transport) and its comment cites I17 for it — so the code, the design, and the
+comment agreed, and the contract was silent.
+
+**Chosen.** Extend I32: the memo is written under the same generation guard as any other store;
+a caller whose generation moved on writes nothing, leaves the entry's `digest` null, and still
+returns the digest it computed, because the value it was computed from is the value that caller
+is being handed. The extension also records why the cache-hit path needs no guard — lookup and
+memo are one synchronous step there, with no await point for an interleaving to arrive through.
+No new id: a correction to an existing invariant is not a new invariant, which is how D61's
+narrowing of I17 was handled.
+
+**Rejected.** Adding I43 instead, which makes the change visible in the id sequence — but it
+splits one property of the memoization across two invariants, and I32 is where a reader looks.
+Also rejected: leaving I32 as written on the grounds that the behaviour is correct in code and
+commented there — that is the argument for every undocumented invariant, and `00-brief.md` §7.1
+makes an invariant the unit of testing, so one nobody wrote down is one nobody tests.
+
+**Test obligation, not discharged here.** `src/core/cache.test.ts:542` covers the cache-hit
+memo. Nothing covers the guarded fresh-load commit — no test fails if the guard is removed, which
+`00-brief.md` §7.1 requires. That is code, and it is `/fix`'s.
+
+**Reversibility:** cheap. One table cell, and the behaviour it describes is already shipped.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -1926,6 +2001,14 @@ A staging area, not a home: an item stays here only until `/track` files it as a
 then it is removed. New items go here as bullets, each starting with a **bolded lead sentence**
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
+
+- **`src/core/types.ts`'s header comment states the doc/tree direction backwards.** It reads
+  "Exact types from 20-contract.md §1-§7, §10. The contract is authoritative; this file
+  transcribes it and adds no member the contract does not name." D69 reversed that: the contract
+  now points at this file for shape and carries only what a declaration cannot. A reader who
+  follows the comment back to `design/20-contract.md` looking for declarations finds pointers to
+  the file they started in. The fix is the comment, not the code — the declarations themselves
+  are unchanged and correct — and it is `/fix`'s, since `/contract` writes `design/` only.
 
 The `useJson().refetch()` cache-policy semantics item was filed on 2026-09-01 as issue #85 and
 removed from this section likewise.
