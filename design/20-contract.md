@@ -62,6 +62,14 @@ D76 makes it a new id rather than a reuse of `json.status` or `json.transport`. 
 `CacheEntry` note are corrected in the same pass — each illustrated its rule with a redirecting
 source that cached, which I45 makes a load that fails.
 
+The same pass closes **§12 U7** against `90-decisions.md` D77: the core exports `canonicalize`
+and `sha256Hex` from `.`, declared in §9 and constrained by the new **I46**, and does not export
+`digestOf`. `10-design.md` §2 fixed the narrow-surface rule and delegated the choice of functions
+here, so this is a design decision rather than a transcription — and it is decided against J9.1's
+requirement read at `SubZeroDev.GameEngine`'s own HEAD rather than against the list D44 happened
+to remove. Neither export is implemented: `src/core/index.ts` re-exports neither, and
+`src/core/index.test.ts` still asserts that it does not.
+
 ## 1. Result
 
 `SourceId`, `Digest`, `ReasonCode`, `JsonMeta` and `JsonResult<T>` are declared in
@@ -358,6 +366,7 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I43** | Eager resolution is **bounded**: a single call to `loadMany`, `preload`, or `prefetch` has at most **64** loads in flight at any instant, however long the id list it was given. The bound is **per call, not per loader** — two concurrent `loadMany` calls may reach 128 between them — because the O5 entry's own terms fix it there (D71): below the ceiling behaviour is identical to today, which a loader-wide semaphore would break by throttling one call on account of another's. Below it every id starts at once; above it the fan-out becomes batches. Batching never converts a partial failure into an early stop: every id is attempted whatever an earlier id returned, which is what keeps I20 true once the ids no longer start together, and resolution order stays nondeterministic, which is why I21 emits sorted. The ceiling is **not configurable** — no port, no factory option, and no source-map field reaches it (O5 rejected a knob outright) — and `/build` is bound by the core's single constant reached across I37's permitted edge, never by a second copy of the number. It raises no reason code of its own: it lowers the odds of a descriptor exhaustion, and does nothing to how one is classified when it happens. | core, build |
 | **I44** | The public/server gate also **scans the bytes** of every file in the public output for each server entry's `url` and each of its declared **header values**, with common JSON and JS string escaping normalised first so that an escaped occurrence is not a miss. A hit is `build.serverSourceLeaked` and fails the build; there is no suppression mechanism, no per-entry opt-out, and no severity below failure. Three exclusions are deliberate, not gaps. **Header names are never scanned** — a name is not a secret and `Authorization` ships inside any HTTP client in the bundle, so scanning names would find the one item that is not a leak while being the only item that collides. **A header value shorter than 8 characters is not scanned**, for the same reason at the other end. And **the message never carries the matched text**, only the id, the file, and which class matched, because a gate that prints a header value writes the credential into the CI log it was raised to protect. Both a whole `url` and its origin-and-path prefix count as matches, so a rewritten query string still trips it. What this **does not** prove, stated rather than implied (D72, D46's move at the wider scope): it catches *accidental* inlining and not an adversary — an occurrence split across concatenation, base64-encoded, or otherwise transformed passes clean, and no scan over output bytes can change that. Runs under I22's ordering, in the same call as I7. | build |
 | **I45** | An http load **refuses redirects**. Every attempt requests `redirect: 'error'`, and the final origin of any response that arrives is compared against the declared source's origin; a mismatch fails the load with `json.redirect` and is never retried (I18). The comparison is not redundant with the request mode: a caller-supplied `fetch` is a function, not a conformance guarantee, and a port that followed anyway is catchable only here, after the fact. **What this does not catch, stated rather than implied (D76):** under a conforming port the redirect is refused by the *port*, and that rejection cannot be told from any other transport failure without reading implementation-specific error text — so the ordinary case raises `json.transport` and is retried under I18, and `json.redirect` names only the half the core can determine. The security property does not rest on that distinction: refusing is what stops the second request, so no declared header value crosses an origin either way (D73, I7, I44). A source that has permanently moved is re-declared at its real URL in the source map — these are hand-written configuration, not links a user clicked. | core |
+| **I46** | `canonicalize` and `sha256Hex` are public (§9), and their **output is a compatibility promise rather than an implementation detail**: for any input either accepts, the string it returns does not change without a major version. A change to either invalidates every `json.lock` digest in the field and every digest a consumer has recorded, which is the same asymmetry D44 argued the narrow default from — now with the promise made rather than withheld. Enforced rather than instructed: `src/core/sha256.test.ts` pins FIPS 180-4 published vectors, and `src/core/canonical.test.ts` pins the engine's own measured output strings (O4). Three things neither export may become. `canonicalize`'s parameter stays `unknown` and is **never narrowed to `CanonicalValue`** — that walk *is* the runtime domain check I36 runs on every load, and a narrowed parameter would advertise a compile-time guarantee that does not exist while making the pipeline's own post-unwrap call untypeable. Its rejection stays a **throw** (I35), never a null, a sentinel, or a result object: the throw is the engine guard rail D39 aligned this package to, and softening it is exactly the silent weakening D39 refused, arriving at J9.1 instead of before it. I2 is untouched, because `load` is not the caller. And `sha256Hex` stays string-in, hex-out — no encoding parameter, no byte-array overload, and **no hash port behind it** (§4) — so I5's one-payload-one-digest stays a property of this package rather than of a consumer's composition. | core |
 
 ## 9. Subpath Exports
 
@@ -367,6 +376,8 @@ visibility to a type checker. What each declaration cannot say:
 
 | Export | Declared in | What the declaration cannot say |
 |---|---|---|
+| `canonicalize` | `src/core/canonical.ts` | The only public member of the core that throws, and the throw is load-bearing (I35, I46). Its `unknown` parameter is the runtime domain check I36 runs, not a missing type. Its output bytes are pinned to the engine's under I13 until J9 deletes the engine's copy, and to themselves under I46 afterwards |
+| `sha256Hex` | `src/core/sha256.ts` | Hashes the UTF-8 encoding of a **string**, and is not a seam: §4 declares no hash port, so a consumer substitutes no implementation and I5 does not become configurable (I46) |
 | `nodeFileSystem` | `src/node/fs.ts` | Read-only, and stays so (§4, D19). Its `watch` is the real filesystem watcher `dispose` unsubscribes (I26) |
 | `nodePorts` | `src/node/ports.ts` | Composes a Node port set; every override replaces wholesale rather than merging into the composed one. Supplying `fetch` here still obliges `schedule` under I6's map-independent clause |
 | `JsonRouteHandler` | `src/node/router.ts` | **Structural on purpose**, so `/node` depends on no web framework — it must never be narrowed to an Express type. Compatible with an Express handler by shape alone |
@@ -415,6 +426,22 @@ construction (I41), and a reader that returned something else would be a second 
 same configuration. Validating here as well is deliberate rather than redundant — it is the same
 check run earlier, so a malformed `at: runtime` entry is caught by a build that under I8 and D43
 never constructs a loader over those entries at all.
+
+`canonicalize` and `sha256Hex` are the answer to what was §12 U7 (`90-decisions.md` D77), and the
+core's first entries in this table — everything else `.` exports is a type or the loader surface,
+carried by §§1–7. They sit on `.` rather than on a `./canonical` subpath: the export map is one
+entry per module, which is what §2's star graph is drawn on, and a subpath per concern would put a
+second boundary inside the core.
+
+`digestOf` is **not** exported, and that is a decision rather than an omission. J9.1's requirement
+is these two and not one: the file J9.1 deletes exports four symbols, and one surviving caller —
+the engine's `persistence/envelope.ts` — hashes a string `canonicalize` never produced, so
+`canonicalize` alone leaves J9 blocked. The engine already carries its own digest function under a
+prefix this package's `Digest` does not admit, and J9.3 reads `json.lock` digests as data rather
+than recomputing them. Adding `digestOf` later stays additive, which is the whole reason for
+leaving it out now (`10-design.md` §2, D44). It is canonical serialization then this module's
+SHA-256 under the `sha256-` prefix, and that composition is what would make a consumer-computed
+digest comparable to a lockfile one.
 
 ## 10. Error semantics
 
@@ -481,14 +508,13 @@ than a protocol.
 
 ## 12. Unresolved
 
-Two items the design does not determine. Each blocks the work named; none is invented here.
-U7 is `30-slices.md`'s "contract gaps this pass surfaced" 2, moved to the register that owns
-it — that section recorded it, this one is where it is answered. Gap 1 was U8, below.
+One item the design does not determine, and it blocks nothing — a stated limit rather than an
+oversight. It is not invented here. U7 was `30-slices.md`'s "contract gaps this pass surfaced" 2,
+moved to the register that owns it and answered below; gap 1 was U8, below it.
 
 | | Item | Blocks |
 |---|---|---|
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
-| **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive and removing one after publication is not — and the package **is** published, at 0.2.0, so that asymmetry now has teeth it did not have when D44 first argued it against an unpublished 0.1.0 (`10-design.md` §2). D44's removal has since landed: `src/core/index.ts` exports none of the three, so the decision is made against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
 
 **U2 is resolved.** Redirects are **refused, not followed** (`90-decisions.md` D73, which names
 the manual-following loop, the contract-the-leak-as-known, the delegate-it-to-the-port, and the
@@ -514,6 +540,20 @@ bound would throttle a forty-id call on account of a concurrent one. `10-design.
 paragraph contradicted I43 by still calling fan-out unbounded; that was a decision changing rather
 than a transcription error, so it was `/design`'s to correct, and it has been — §5 now states the
 bound and cites I43 for it. The id is retired, not reused.
+
+**U7 is resolved.** The core exports `canonicalize` and `sha256Hex`, and **not** `digestOf`
+(`90-decisions.md` D77, which names the canonicalize-alone, the add-`digestOf`, the `./canonical`
+subpath, and the rename-to-`canonicalStringify` alternatives, and why each was rejected). Both are
+declared in §9 and constrained by **I46**. `10-design.md` §2 fixed the rule and said outright that
+it does not pick the functions; what picks them is J9.1's requirement, read at
+`SubZeroDev.GameEngine`'s own HEAD rather than inferred from D39's 2026-07-28 reading. The file
+J9.1 deletes exports four symbols; two survive the deletion with callers, and one of those callers
+hashes a string `canonicalize` never produced — so the one-export reading U7 offered leaves J9
+blocked. `digestOf` stays internal because the engine has its own under a prefix this package's
+`Digest` does not admit, and J9.3 consumes `json.lock` digests as data. The exports are contracted
+here and **not yet implemented** — `src/core/index.ts` re-exports neither, and
+`src/core/index.test.ts` asserts outright that it does not, so the implementing work inverts that
+test rather than deleting it. The id is retired, not reused.
 
 **U8 is resolved.** `/node` owns the reader (`90-decisions.md` D62), and §9 declares it as two
 functions: `parseSourceMap(text)` for the validation half and `readSourceMap(path)` for the file

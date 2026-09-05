@@ -2304,6 +2304,69 @@ and narrowing what raises it is not, so the direction that costs is removal.
 
 ---
 
+## D77 — The core exports `canonicalize` and `sha256Hex`, and not `digestOf` (2026-09-05)
+
+**Context.** `20-contract.md` §12 U7 records that no canonical-serialization function is public and
+that the design does not determine which become so. `10-design.md` §2 is explicit about the split:
+it fixes the narrow-surface rule — the core owns canonical serialization and the digest and exposes
+neither, because adding an export later is additive and removing one after publication is not — and
+says in as many words that it "does not pick the functions", routing that to U7. D44 removed
+`canonicalize`, `digestOf`, and `sha256Hex` from `src/core/index.ts` precisely so the set would be
+decided against J9.1's requirement rather than by ratifying whatever a slice happened to export.
+U7 offered two readings, `canonicalize` alone or all three, and settled neither.
+
+**What reading the engine changed about the question.** J9.1 is stated as deleting one file:
+`src/engine/src/core/persistence/canonical.ts` in `SubZeroDev.GameEngine`. That file was read at
+that repository's HEAD, `10e566a` — a third reading, after D39's at `f7d8f59` and O4's at
+`b7e21e7`, and the first taken for the *export* question rather than the byte-identity one. It
+exports four symbols, not one. `serialize` and `deserialize` are engine-local one-liners over
+`canonicalStringify` and `JSON.parse` and impose nothing on this package. `canonicalStringify` and
+`sha256Hex` both have callers that survive the deletion — and `sha256Hex` is not merely a step in a
+composition: `src/engine/src/core/persistence/envelope.ts` calls it on a string that
+`canonicalStringify` never produced. So the one-export reading does not let J9.1 delete the file,
+and choosing it would leave J9 blocked on a second amendment.
+
+The same reading settles `digestOf` in the other direction. The engine already has one, in
+`src/engine/src/portable/digest.ts`, under the prefix `sha-256:` — which this package's
+`Digest` type does not admit, since it is `` `sha256-${string}` ``. Nothing in the engine computes
+a `sha256-` digest, and J9.3 has it *consume* `json.lock` digests as content-pack identity rather
+than recompute them. So no stated requirement reaches `digestOf`.
+
+**Chosen.** Two exports from the core's `.` entry point, `canonicalize` and `sha256Hex`, declared
+in `20-contract.md` §9 and constrained by the new I46. `digestOf` stays internal. §12 U7 closes.
+
+**Rejected.** All three, adding `digestOf`. It hands a consumer the `sha256-` recipe as one call
+instead of a composition it could get subtly wrong, which is I13's duplication one level up. But it
+is a third compatibility promise on a published package that no consumer has asked for, and the
+type does catch the prefix error it would prevent — a `` `sha-256:${hex}` `` string is not
+assignable to `Digest`. Deciding it now on an unstated need is what D44 declined to do.
+
+**Rejected.** `canonicalize` alone, U7's own first reading. It is the narrowest option and would be
+right if J9.1's requirement were the serializer alone. Read at the engine's HEAD it is not: J9.1
+cannot delete the file it names without `sha256Hex` as well.
+
+**Rejected.** A new `./canonical` subpath rather than `.`. It keeps the core's main barrel at the
+loader surface and makes the serializer opt-in. But the export map is one entry per module, which
+is what `10-design.md` §2's star graph is drawn on, and a subpath per concern puts a second
+boundary inside the core — and a subpath is no cheaper to remove later than a symbol is.
+
+**Rejected.** Renaming the export to the engine's `canonicalStringify`. It would make J9.1 a pure
+deletion with no import rewriting. But it inverts ownership — a package renaming its own function
+to match one consumer's vocabulary — and churns `/build`'s existing internal caller for a
+consumer's convenience. The engine adapts at its import site.
+
+**Not done here.** No code changed. `src/core/index.ts` re-exports neither symbol, and
+`src/core/index.test.ts` asserts that it does not, with a comment citing §9 as declaring none —
+which this amendment makes false. The implementing work inverts that test rather than deleting it;
+a test that only ever asserted the absence would otherwise be removed and leave the presence
+unguarded. Staged in `## Open` below.
+
+**Reversibility:** cheap while unimplemented, expensive after. Once published, removing an export
+is breaking, which is the asymmetry `10-design.md` §2 and D44 both rest on and the reason the set
+is two rather than three.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -2320,6 +2383,14 @@ A staging area, not a home: an item stays here only until `/track` files it as a
 then it is removed. New items go here as bullets, each starting with a **bolded lead sentence**
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
+
+- **Export `canonicalize` and `sha256Hex` from the core, per §12 U7's resolution.** `20-contract.md`
+  §9 declares both and I46 constrains them (D77); `src/core/index.ts` re-exports neither. The work
+  is the two re-exports, and inverting `src/core/index.test.ts`'s current assertion that they are
+  absent — including its comment, which cites §9 as declaring none of the three. `digestOf` stays
+  internal and the test keeps asserting *its* absence. Nothing in `src/core/canonical.ts` or
+  `src/core/sha256.ts` changes: I46 promises their current output, so a change to either is the
+  thing the invariant forbids. It unblocks J9.1, which is still gated on content packs existing.
 
 The I45 redirect-refusal implementation item (D73, D76) was filed on 2026-09-05 as issue #107
 and removed from this section likewise.

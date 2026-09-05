@@ -642,12 +642,13 @@ build digests as content-pack identity.
 
 **Touches:** `SubZeroDev.GameEngine`
 **Depends on:** J1, and a GameEngine consumer that actually loads JSON
-**Blocked by: `20-contract.md` §12 U7.** J9.1 needs a public canonical-serialization export
-and §9 declares none. D44 removed the three the core index carried by accident, precisely so
-the export set is decided against J9.1's stated requirement rather than against whatever a
-slice happened to export — which function or functions become public, and under what
-signatures, is a `/contract` amendment. Adding an export later is additive; removing one after
-publication is not. §12 U4 no longer blocks this slice (D39)
+**No longer blocked by `20-contract.md` §12 U7.** J9.1 needed a public canonical-serialization
+export and §9 declared none; §12 U7 is now closed and §9 declares `canonicalize` and `sha256Hex`,
+constrained by I46 (`90-decisions.md` D77). The set was decided against J9.1's requirement read at
+the engine's own HEAD — `canonicalize` alone would not have let this slice delete the file it
+names. Neither export is implemented yet, so J9.1's first step is that re-export landing, not a
+further amendment. §12 U4 no longer blocks this slice either (D39). What still gates J9 is content
+packs existing, above
 
 ### Done when
 
@@ -718,7 +719,9 @@ register that answers them; this section is a pointer, not a second copy (`AGENT
   `parseSourceMap` and `readSourceMap` under I42 (`90-decisions.md` D62, D63). Was gap 1. It
   blocked **J6** and it no longer does — the work is **J13**, and J2 and J3 still leave it
   alone.
-- **§12 U7** — no public canonical serializer. Was gap 2. Blocks **J9**.
+- **§12 U7 is closed.** The core exports `canonicalize` and `sha256Hex` and not `digestOf`; §9
+  declares both under I46 (`90-decisions.md` D77). Was gap 2. It blocked **J9** and it no longer
+  does — what J9 still waits on is content packs existing, not a contract answer.
 - Gap 3, `meta.location` for an `inline` source, is **closed**: `20-contract.md` §1 states that
   `location` is `''` both when nothing resolved and for an `inline` source, and that `provider`
   is what distinguishes them.
