@@ -457,9 +457,13 @@ server workers share nothing. There is no cross-process cache and no distributed
 which is a non-goal (`00-brief.md` §5.4) and the reason invalidation can be a counter rather
 than a protocol.
 
-Concurrency in eager resolution is **unbounded**, because a source map is hand-written
-configuration and is small by construction. That is an assumption, not a guarantee, and it is
-recorded in the open register rather than defended here.
+Concurrency in eager resolution is **bounded**, at the fixed per-call ceiling `20-contract.md`
+I43 states. A source map is hand-written configuration and small by construction — but that is
+an assumption, not a guarantee, and `loadMany` takes a caller-sized array the assumption never
+reaches. The ceiling is set above the range the assumption itself claims, so it engages only
+where the assumption has already been violated and changes nothing below it. It is a constant
+rather than a knob: the ceiling belongs to whatever the port is made of, which is not a question
+the caller is usually able to answer either (`90-decisions.md` O5).
 
 ## 6. Alternatives considered
 
