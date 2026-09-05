@@ -53,6 +53,15 @@ untouched by it. It also **extends I32** (D70), which named the digest memoizati
 generation guard on its write; `10-design.md` §5 determines that guard and cites I32 for it, so
 the extension transcribes a fact this file had failed to carry rather than changing one.
 
+A 2026-09-05 pass closes **§12 U2** against `90-decisions.md` D73, which decides that redirects
+are refused rather than followed and routes the amendment here. It appends **I45** for the
+refusal, adds `json.redirect` to §10.2's closed union, and names it in I18's never-retried list
+and I28's status map. The reason code is this pass's one design decision rather than a
+transcription: D73 settles that a refused redirect is non-retryable and leaves the id open, and
+D76 makes it a new id rather than a reuse of `json.status` or `json.transport`. I16, I30 and §4's
+`CacheEntry` note are corrected in the same pass — each illustrated its rule with a redirecting
+source that cached, which I45 makes a load that fails.
+
 ## 1. Result
 
 `SourceId`, `Digest`, `ReasonCode`, `JsonMeta` and `JsonResult<T>` are declared in
@@ -158,8 +167,10 @@ declared in `src/core/types.ts`.
   rejection; a `cancel` that resolved would be indistinguishable from the wait elapsing.
 - **`CacheEntry.data` is frozen, post-unwrap and pre-validation** (I15). `source` is the source
   the entry was *declared* under and is compared on every lookup; `location` is where the bytes
-  came from and is recorded, never compared (I16, I30) — conflating them makes a redirecting
-  source miss forever. `digest` is the one mutable field, memoized under a generation guard on
+  came from and is recorded, never compared (I16, I30). I45 makes the two equal on every
+  successful http load, so the separation no longer earns its keep by preventing a redirecting
+  source from missing forever; it stays because a key must be predictable from the declaration
+  alone, and `location` is not. `digest` is the one mutable field, memoized under a generation guard on
   first request against the entry (I32). `storedAt` is `null` where no clock port was supplied,
   and `stamp` is populated under an `mtime` policy only; a null value of either is never a hit
   (I25, I40).
@@ -293,7 +304,9 @@ the re-derivation after it. I17 was **narrowed** in the pass after that (D61) an
 with it; no id was added for either, because a correction to an existing invariant is not a new
 invariant. I42 was appended in the same pass, with D62 and D63. I32 was **extended** on
 2026-09-03 (D70) for the same reason and likewise without a new id. I43 and I44 were appended on
-2026-09-03 (D71, D72), resolving what was §12 U5 and issue #37 respectively.
+2026-09-03 (D71, D72), resolving what was §12 U5 and issue #37 respectively. I45 was appended on
+2026-09-05 (D73, D76), resolving what was §12 U2; I16, I18, I28 and I30 were amended in the same
+pass and none of them acquired an id, for the same reason.
 
 This section carries no declarations and points at none: an invariant is exactly the thing a
 type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouched.
@@ -315,9 +328,9 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I13** | The core's canonical serializer is byte-identical to `src/engine/src/core/persistence/canonical.ts` on that module's test vectors, and rejects exactly the values that module rejects — **except that it may reject strictly more**, never less (D49). D39 read that module at `f7d8f59` and recorded no non-plain-object vector, so whether it rejects a `Date` is unknown and is not to be guessed at; this package rejects one. Stricter is the safe direction under D39's own argument, since J9 swaps this implementation in beneath the engine's determinism acceptance test. Message text is not compared — a rejection is compared as a rejection. Cross-checked until J9, when the engine's copy is deleted. | core |
 | **I14** | Every value `load` returns is deeply frozen — on a miss, with caching off, after a validator transform, and on a fallback. Mutability never depends on a cache policy the call site cannot see. | core |
 | **I15** | The cache line holds the post-unwrap, pre-validation value. Validation runs per call against it, so `validated` is a property of the call and never of the entry. | core |
-| **I16** | The cache key is the source id, scoped to the loader instance. An entry records the `JsonSource` it was declared as, and a lookup is a hit only where that source equals the one the request resolves to — for an http source, url and headers both. *Elsewhere* means a **different declared source, never a different final URL**: a source that redirects caches under the id it was declared as, and `location` keeps its I30 meaning untouched. A request supplying its own `source` is neither read from, written to, nor joined against the cache. | core |
+| **I16** | The cache key is the source id, scoped to the loader instance. An entry records the `JsonSource` it was declared as, and a lookup is a hit only where that source equals the one the request resolves to — for an http source, url and headers both. *Elsewhere* means a **different declared source, never a different final URL**, and `location` keeps its I30 meaning untouched. I45 makes bytes arriving from another origin a failed load rather than a cached one, so the distinction is now hard to violate as well as wrong to. A request supplying its own `source` is neither read from, written to, nor joined against the cache. | core |
 | **I17** | Concurrent **cache-eligible** misses (§3) for one key issue one transport. The rest join it and receive the same frozen value. A read that is not cache-eligible takes no part in the join in either direction: a `cache: false` request and a request carrying its own `source` (I16) each go straight to transport, joining no load in flight and being joined by none — so two concurrent opt-out reads of one id issue two transports, and an opt-out read never initiates a load a normal read commits (D61). A load compares the generation it started under before storing; on a mismatch it returns its result and writes nothing. | core |
-| **I18** | Retry applies only to `json.transport`, `json.timeout`, and statuses 408, 429, and 5xx. Never to other 4xx, `json.parse`, `json.schema`, `json.notFound`, or `json.tooLarge`. `timeoutMs` bounds each attempt, never the call. | core |
+| **I18** | Retry applies only to `json.transport`, `json.timeout`, and statuses 408, 429, and 5xx. Never to other 4xx, `json.parse`, `json.schema`, `json.notFound`, `json.tooLarge`, or `json.redirect`. Retryability is a function of the reason code alone: no condition outside this list reaches it, which is why a refused redirect needed an id of its own rather than an exemption carved into `json.transport` (D76). `timeoutMs` bounds each attempt, never the call. | core |
 | **I19** | A failed load neither populates nor evicts the cache. A stale entry is not a hit and is not deleted. A declared `fallback` is the only path by which a caller receives data it did not just read. | core |
 | **I20** | `preload` and `prefetch` resolve every id before failing, and name every failed id in `JsonError.failures`. Never only the first. | core, build |
 | **I21** | Lockfile entries are emitted in sorted-id order through the canonical serializer. Two builds over unchanged bytes produce a byte-identical lockfile — compared whole, with nothing excluded. No lock entry carries a clock-derived field, because one field that legitimately differs run to run is enough to defeat this (D47). | build |
@@ -327,9 +340,9 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I25** | An `mtime` stamp is captured before the read, never after. A null stamp is never a hit. An `mtime` policy on a non-file entry is `config.invalidEntry`. | core, node |
 | **I26** | Every watcher a loader registered is unsubscribed by `dispose()`. A watch is registered lazily on first successful read, never at construction. After `dispose`, the process is not held open by this loader. | core, node |
 | **I27** | A body exceeding a declared `maxBytes` — measured against `Content-Length` where present, and against the decoded length always — yields `json.tooLarge`, is not retried, and writes nothing to the cache. Where a declared `Content-Length` is what refused it, `meta.bytes` carries that declared length: no body was received to measure, and the declared length is the number the refusal was made on. | core |
-| **I28** | The router maps reason to status and never forwards the upstream status: `json.unresolved` and `json.notFound` to 404; `json.timeout` and `json.transport` to 504; `json.status`, `json.parse`, `json.schema`, and `json.tooLarge` to 502. Its failure body is `{ success: false, message }` carrying the result's own `message` — the field the core's `'subzerodev'` unwrap reads (I34), so a data-json client of a data-json server receives the real text rather than generic fallback prose (D45). | node |
+| **I28** | The router maps reason to status and never forwards the upstream status: `json.unresolved` and `json.notFound` to 404; `json.timeout` and `json.transport` to 504; `json.status`, `json.parse`, `json.schema`, `json.tooLarge`, and `json.redirect` to 502. Its failure body is `{ success: false, message }` carrying the result's own `message` — the field the core's `'subzerodev'` unwrap reads (I34), so a data-json client of a data-json server receives the real text rather than generic fallback prose (D45). | node |
 | **I29** | One `CacheStore` handed to two loaders serves neither loader the other's entries, and `invalidate` on either leaves the other's entries intact. | core |
-| **I30** | `meta.location` and `JsonLock.sources[].location` record the location the bytes came from, not the location that was requested. | core, build |
+| **I30** | `meta.location` and `JsonLock.sources[].location` record the location the bytes came from, not the location that was requested. I45 makes the two equal on every **successful** http load; the fields keep their separate meanings anyway, because that equality is a consequence of a refusal rather than a definition, and a failed load still records where the bytes it rejected arrived from. | core, build |
 | **I31** | `cache` is required on every http and file entry and forbidden on an inline entry. There is no default cache policy. Omitting it is `config.invalidEntry` naming the id. | core |
 | **I32** | A `digest: true` request against an entry stored without one computes the digest from the cached value and memoizes it. It never re-transports, and never returns `digest: null` under `ok: true`. The memo is written **under the same generation guard as any other store** (I17, D70): a caller that computed it after the entry's generation moved on — an `invalidate`, or a watch callback — writes nothing and leaves the entry's `digest` null, and still returns the digest it computed to its own caller, because the value it was computed from is the value that caller is being handed. The guard matters only where an await point separates the load from the memo; on a cache hit the lookup and the memo are one synchronous step, and there is no interleaving for it to lose. | core |
 | **I33** | `prefetch` emits a `SourceMap` in which every `at: build` entry has become an inline entry carrying the resolved data. A runtime loader constructed from it resolves those ids without any port, and `10-design.md` §3.1's pipeline never branches on `at`. The rewritten entry keeps `at` and `schema` and carries none of `unwrap`, `cache`, `maxBytes`, `timeoutMs`, or `retry`: the data is already unwrapped, and an inline entry transports nothing for any of them to govern (I31 forbids `cache` there outright). | build |
@@ -344,6 +357,7 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I42** | `parseSourceMap` and `readSourceMap` accept exactly the maps `createJsonLoader` accepts and reject exactly the ones it rejects, because they apply the core's own entry check by relative import into `src/core/` rather than a second copy of §6's rules (D62, I37). The reader adds one check the core's cannot make, because the core's input is already typed: that the parsed document is an object carrying a `sources` record. Every failure out of either is a `JsonError` (I24) — `config.unreadable` where the bytes could not be obtained, `config.invalidEntry` for everything else, and never a `YAMLException` or a bare `TypeError`. | node |
 | **I43** | Eager resolution is **bounded**: a single call to `loadMany`, `preload`, or `prefetch` has at most **64** loads in flight at any instant, however long the id list it was given. The bound is **per call, not per loader** — two concurrent `loadMany` calls may reach 128 between them — because the O5 entry's own terms fix it there (D71): below the ceiling behaviour is identical to today, which a loader-wide semaphore would break by throttling one call on account of another's. Below it every id starts at once; above it the fan-out becomes batches. Batching never converts a partial failure into an early stop: every id is attempted whatever an earlier id returned, which is what keeps I20 true once the ids no longer start together, and resolution order stays nondeterministic, which is why I21 emits sorted. The ceiling is **not configurable** — no port, no factory option, and no source-map field reaches it (O5 rejected a knob outright) — and `/build` is bound by the core's single constant reached across I37's permitted edge, never by a second copy of the number. It raises no reason code of its own: it lowers the odds of a descriptor exhaustion, and does nothing to how one is classified when it happens. | core, build |
 | **I44** | The public/server gate also **scans the bytes** of every file in the public output for each server entry's `url` and each of its declared **header values**, with common JSON and JS string escaping normalised first so that an escaped occurrence is not a miss. A hit is `build.serverSourceLeaked` and fails the build; there is no suppression mechanism, no per-entry opt-out, and no severity below failure. Three exclusions are deliberate, not gaps. **Header names are never scanned** — a name is not a secret and `Authorization` ships inside any HTTP client in the bundle, so scanning names would find the one item that is not a leak while being the only item that collides. **A header value shorter than 8 characters is not scanned**, for the same reason at the other end. And **the message never carries the matched text**, only the id, the file, and which class matched, because a gate that prints a header value writes the credential into the CI log it was raised to protect. Both a whole `url` and its origin-and-path prefix count as matches, so a rewritten query string still trips it. What this **does not** prove, stated rather than implied (D72, D46's move at the wider scope): it catches *accidental* inlining and not an adversary — an occurrence split across concatenation, base64-encoded, or otherwise transformed passes clean, and no scan over output bytes can change that. Runs under I22's ordering, in the same call as I7. | build |
+| **I45** | An http load **refuses redirects**. Every attempt requests `redirect: 'error'`, and the final origin of any response that arrives is compared against the declared source's origin; a mismatch fails the load with `json.redirect` and is never retried (I18). The comparison is not redundant with the request mode: a caller-supplied `fetch` is a function, not a conformance guarantee, and a port that followed anyway is catchable only here, after the fact. **What this does not catch, stated rather than implied (D76):** under a conforming port the redirect is refused by the *port*, and that rejection cannot be told from any other transport failure without reading implementation-specific error text — so the ordinary case raises `json.transport` and is retried under I18, and `json.redirect` names only the half the core can determine. The security property does not rest on that distinction: refusing is what stops the second request, so no declared header value crosses an origin either way (D73, I7, I44). A source that has permanently moved is re-declared at its real URL in the source map — these are hand-written configuration, not links a user clicked. | core |
 
 ## 9. Subpath Exports
 
@@ -440,6 +454,7 @@ is expected to do about it are not, and cannot be.
 | `json.ok` | The value resolved | — | Use `data` |
 | `json.transport` | The fetch port rejected, or the filesystem port failed on permission or IO | Yes, while attempts remain | Treat as an outage. Quiet handling; the payload is fine |
 | `json.status` | A response arrived with a non-2xx status | Only 408, 429, 5xx | 408/429/5xx is an outage; any other status is a misconfigured URL |
+| `json.redirect` | A response's final origin differs from the declared source's — a redirect a non-conforming fetch port followed (I45). A conforming port refuses it first, and that rejection arrives as `json.transport` instead | No | Re-declare the source at its real URL in the source map. Not an outage: the target moved, and the fix is one edit to configuration |
 | `json.timeout` | No response inside one attempt's budget | Yes, while attempts remain | As `json.transport` |
 | `json.parse` | The body was not JSON, or was empty | No | Loud. The upstream is serving something other than what was declared |
 | `json.schema` | A declared unwrap could not produce a value, a `'subzerodev'` envelope reported `success: false` (I34), a caller-supplied unwrap threw or returned a value outside `CanonicalValue` (I35, I36), an `inline` entry carried such a value, or a validator returned not-ok or threw | No | Loud. The payload changed shape, or this caller's schema, unwrap, or inline entry is wrong. `message` names which. The cache entry stands |
@@ -466,15 +481,26 @@ than a protocol.
 
 ## 12. Unresolved
 
-Three items the design does not determine. Each blocks the work named; none is invented here.
+Two items the design does not determine. Each blocks the work named; none is invented here.
 U7 is `30-slices.md`'s "contract gaps this pass surfaced" 2, moved to the register that owns
 it — that section recorded it, this one is where it is answered. Gap 1 was U8, below.
 
 | | Item | Blocks |
 |---|---|---|
-| **U2** | **Redirect policy** (`90-decisions.md` O15). No redirect mode is specified, so a fetch port follows by default, and only `Authorization`, `Cookie`, and `Proxy-Authorization` are stripped cross-origin — a declared `X-Api-Key` reaches a different origin. I30 settles what `location` records; whether redirects are followed, and what happens to declared headers across an origin change, is undetermined. | J1, J3 |
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
 | **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive and removing one after publication is not — and the package **is** published, at 0.2.0, so that asymmetry now has teeth it did not have when D44 first argued it against an unpublished 0.1.0 (`10-design.md` §2). D44's removal has since landed: `src/core/index.ts` exports none of the three, so the decision is made against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
+
+**U2 is resolved.** Redirects are **refused, not followed** (`90-decisions.md` D73, which names
+the manual-following loop, the contract-the-leak-as-known, the delegate-it-to-the-port, and the
+same-origin-only alternatives, and why each was rejected). I45 states the refusal and both of its
+halves; the reason code is `json.redirect`, non-retryable under I18, and it is a **new** id rather
+than a reuse of `json.status` or `json.transport` (D76 — the first would name a status that is not
+the reason, and the second would make retryability depend on something other than the code). What
+the resolution does **not** buy is stated in I45 rather than implied: a conforming port refuses the
+redirect itself, indistinguishably from any other transport failure, so the retry saving reaches
+only the half the core can determine, while the leak D73 closes is closed on both. The invariant is
+contracted here and **not yet implemented** — `src/core/pipeline.ts` still passes no `redirect`
+mode and `ReasonCode` still carries eight codes. The id is retired, not reused.
 
 **U5 is resolved.** Eager resolution carries a fixed ceiling of 64 loads in flight per call,
 stated as I43 (`90-decisions.md`, the 2026-09-03 O5 entry and D71; O5 names the loader `concurrency`
