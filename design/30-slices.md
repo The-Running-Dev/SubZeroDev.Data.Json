@@ -678,6 +678,7 @@ lie in the other direction.
 | **I35, I36** — the canonical value domain, enforced on every load | D40, the 2026-08-07 pass | `1dc18e7` (#23), immediately after J1 merged | `src/core/loader.test.ts`, *I35/I36: canonical value domain, enforced on every load* |
 | **I37** — no leaf module imports another leaf | D51, `6abde9f` (#48) | same commit | `src/boundaries.test.ts`, which lints a violating fixture rather than asserting the real tree is clean — the latter passes with the rule deleted (D50) |
 | **I38** — exactly one `JsonEvent` per completed load | D52, `6abde9f` (#48) | `530ca3b` (#50) | `src/core/loader.test.ts`, `cache.test.ts`, `join.test.ts` |
+| **I45** — an http load refuses redirects: `redirect: 'error'` on every attempt, and a final-origin mismatch fails with `json.redirect` | D73, D76, the 2026-09-05 pass (#106) | issue #107, via `/fix` | `src/core/http.test.ts`, *I45: an http load refuses redirects*; `src/node/router.test.ts`'s reason-to-status table |
 
 I37 is listed on the `Contract:` line of all four leaf slices because it constrains each of
 them; it is a single guard, not four.
