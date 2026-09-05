@@ -2195,6 +2195,68 @@ behaviour.
 
 ---
 
+## D75 — Conversion is all-or-nothing and throws, naming every failed file (2026-09-05)
+
+**Context.** O27 (issue #30). `convertYamlToJson` logs a per-file parse failure to `console.error`,
+skips the file, and returns a count it is absent from — reproduced from both existing converters,
+which is what J2.3 required. The CLI (`src/node/cli.ts`) is handed only that count, so it prints
+its summary line and exits **0**, and `Data/build.ts` calls that binary. A malformed YAML file
+therefore drops a published artifact while CI stays green; the only signal is a count one smaller
+than yesterday's, which nothing reads. The behaviour is inherited from the two converters rather
+than chosen by either — neither was ever asked the question.
+
+**Chosen.** Parse every file, write nothing unless every file parsed, and throw a coded
+`JsonError` naming every failure rather than the first. The return type stays `Promise<number>`,
+so §9's row keeps its meaning on the success path and no caller reading the count breaks; the
+CLI's existing `catch` already sets a non-zero exit code, so the build goes red without a change
+there.
+
+This package has already decided the same question on the sibling path. `prefetch` is the other
+build-time producer of published files, and I20 with `build.failed` settle it — attempt every id,
+name every failure, and, in §10.1's own words, *nothing was written; the previous output is
+untouched*. The converter is that situation with a different parser, and nothing in the corpus
+argues for answering it differently: `Data` has 7 YAML files and `Docs-Template` one, so holding
+the converted documents before writing costs nothing measurable. A failed run leaves the previous
+artifacts in place — stale and complete, rather than fresh and missing one.
+
+**The cost, accepted rather than glossed.** One malformed file now blocks the publication of every
+artifact in the run, where today the rest still publish. Since every option that fixes this at all
+turns the build red, the only thing actually traded is whether the output directory is left
+half-updated, and I20 already ruled on that.
+
+**Rejected.** Throwing, but keeping the files that did convert. The smaller change, and it makes
+the outcome of a run depend on which file happened to break. It also leaves the two build-time
+producers with contradictory guarantees about partial output, which is the kind of inconsistency
+that is not noticed until it is being debugged.
+
+**Rejected.** Returning `{ converted, failures[] }` instead of a number, mirroring `preload`'s
+array directly. Structurally the most informative option, and rejected because it is a breaking
+change to an export already published at 0.2.0, bought for information whose only realistic use is
+to fail the build — which a throw does without the migration.
+
+**Rejected.** Keeping the behaviour and contracting it as known, with §9 gaining a sentence saying
+a failed file is logged, skipped, and excluded from the count. Zero work, and it writes into the
+contract that a green build may quietly unpublish content.
+
+**Requires a contract amendment, not made here.** Issue #30's stop condition is reached. §10.1
+needs a new `JsonErrorCode` for the failure — carrying the failed paths, in the shape
+`preload.failed` and `build.failed` already use — and §9's `convertYamlToJson` row needs the throw
+and the all-or-nothing guarantee, which is what J2.9 requires of any `/node` throw. Both are
+`/contract`'s pass; the code and its tests follow it. J2.3's "reproduces the behaviour of both
+existing converters" also stops being true in this one respect, deliberately, and the amendment
+should say so rather than leaving the criterion to be read as still describing the tree.
+
+**Test obligation, not discharged here.** Under `AGENTS.md` *Verification*, this is not done until
+it has rejected something: a run over a directory containing one malformed file writes no output
+at all and throws naming that file, and a run over a directory with several failures names every
+one of them, with the counts stated.
+
+**Reversibility:** cheap in the code and expensive in the contract — the error code, once
+published, is a public surface, and relaxing back to skipping is a build that stops failing, which
+nobody notices.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |

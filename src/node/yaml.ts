@@ -59,10 +59,11 @@ export async function convertYamlToJson(from: string, to: string): Promise<numbe
 
       converted++;
     } catch (error) {
-      // Known and retained (O27): both converters log the failure, skip the file, and
-      // report a count that excludes it — so malformed YAML drops an artifact quietly.
-      // Reproducing it is the criterion; changing it is a contract question, since §9
-      // returns only a number and has nowhere to put a failure.
+      // Still as both converters behave — log the failure, skip the file, report a count
+      // that excludes it — so malformed YAML drops an artifact quietly. D75 decides this
+      // goes: conversion becomes all-or-nothing and throws naming every failed file. The
+      // change waits on the amendment, since §10.1 needs the error code and §9 needs the
+      // throw, which is /contract's pass and not this module's.
       console.error(
         `[ERROR] Failed to Process ${source}: ${error instanceof Error ? error.message : String(error)}`
       );
