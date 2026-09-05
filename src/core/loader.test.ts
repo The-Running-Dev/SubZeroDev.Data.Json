@@ -1,9 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { createJsonLoader } from './loader.js';
 import { JsonError } from './errors.js';
-import type { SourceMap } from './types.js';
+import type { FileSystemPort, SourceEntry, SourceId, SourceMap } from './types.js';
 
 const inlineMap = (sources: SourceMap['sources']): SourceMap => ({ version: 1, sources });
+
+/** A `FileSystemPort` over N distinct files, tracking the peak number of concurrent `read`s. */
+function fileFanOutMap(count: number): { map: SourceMap; fs: FileSystemPort; peak: () => number } {
+  const sources: Record<SourceId, SourceEntry> = {};
+  for (let i = 0; i < count; i++) {
+    sources[`id${i}`] = { at: 'runtime', path: `/f${i}.json`, cache: 'manual' } as never;
+  }
+  let active = 0;
+  let peak = 0;
+  const fs: FileSystemPort = {
+    async read() {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active--;
+      return '{"v":1}';
+    },
+    async stat() {
+      return { mtimeMs: 1, size: 8 };
+    },
+  };
+  return { map: { version: 1, sources }, fs, peak: () => peak };
+}
 
 describe('createJsonLoader — J1.3: every port optional', () => {
   it('constructs and loads over an inline-only map with no ports argument at all', async () => {
@@ -222,6 +245,45 @@ describe('J1.15: loadById and loadMany', () => {
     const results = await loader.loadMany(['a', 'missing']);
     expect(results.a?.ok).toBe(true);
     expect(results.missing?.ok).toBe(false);
+  });
+});
+
+describe('I43: loadMany and preload are bounded to the fan-out ceiling (64), per call', () => {
+  it('loadMany over 200 ids never has more than 64 file reads in flight at once', async () => {
+    const { map, fs, peak } = fileFanOutMap(200);
+    const loader = createJsonLoader(map, { fs });
+    const ids = Object.keys(map.sources);
+
+    const results = await loader.loadMany(ids);
+
+    expect(peak()).toBeLessThanOrEqual(64);
+    expect(peak()).toBe(64); // 200 ids saturate the ceiling rather than under-using it
+    for (const id of ids) expect(results[id]?.ok).toBe(true);
+  });
+
+  it('preload over 200 ids never has more than 64 file reads in flight at once', async () => {
+    const { map, fs, peak } = fileFanOutMap(200);
+    const loader = createJsonLoader(map, { fs });
+    const ids = Object.keys(map.sources);
+
+    await loader.preload(ids);
+
+    expect(peak()).toBeLessThanOrEqual(64);
+    expect(peak()).toBe(64);
+  });
+
+  it('two concurrent 40-id loadMany calls are unaffected by each other — the ceiling is per call', async () => {
+    const { map, fs, peak } = fileFanOutMap(80);
+    const loader = createJsonLoader(map, { fs });
+    const ids = Object.keys(map.sources);
+    const callA = ids.slice(0, 40);
+    const callB = ids.slice(40, 80);
+
+    await Promise.all([loader.loadMany(callA), loader.loadMany(callB)]);
+
+    // Both calls are individually below the 64 ceiling, so a per-call bound lets them overlap
+    // freely: peak concurrency across the two is 80, not throttled to 64.
+    expect(peak()).toBe(80);
   });
 });
 
