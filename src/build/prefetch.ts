@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { canonicalize } from '../core/canonical.js';
 import { normalizeSourceMap } from '../core/config.js';
+import { FAN_OUT_CEILING, fanOut } from '../core/concurrency.js';
 import { createJsonLoader, JsonError } from '../core/index.js';
 import type { Digest, JsonFailure, JsonLock, JsonPorts, SourceEntry, SourceId, SourceMap } from '../core/index.js';
 
@@ -45,7 +46,7 @@ export async function prefetch(map: SourceMap, outDir: string, ports: JsonPorts)
   };
   const loader = createJsonLoader(loaderMap, ports);
 
-  const results = await Promise.all(buildIds.map((id) => loader.load({ id, digest: true })));
+  const results = await fanOut(buildIds, FAN_OUT_CEILING, (id) => loader.load({ id, digest: true }));
 
   const failures: JsonFailure[] = [];
   const resolved = new Map<SourceId, Resolved>();

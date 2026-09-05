@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JsonError } from '../core/index.js';
-import type { JsonPorts, SourceMap } from '../core/index.js';
+import type { JsonPorts, SourceEntry, SourceId, SourceMap } from '../core/index.js';
 import { prefetch } from './prefetch.js';
 
 function fakeFs(files: Record<string, string>): NonNullable<JsonPorts['fs']> {
@@ -203,5 +203,51 @@ describe('prefetch (J3.1, J3.2, J3.3, J3.6, J3.7, J3.10)', () => {
     expect(output.lock.sources['greeting']?.bytes).toBe(0);
     const artifact = await readFile(join(outDir, 'greeting.json'), 'utf8');
     expect(JSON.parse(artifact)).toEqual({ hello: 'world' });
+  });
+});
+
+describe('I43: prefetch is bounded to the fan-out ceiling (64), per call', () => {
+  let outDir: string;
+
+  beforeEach(async () => {
+    outDir = await mkdtemp(join(tmpdir(), 'data-json-prefetch-fanout-'));
+  });
+
+  afterEach(async () => {
+    await rm(outDir, { recursive: true, force: true });
+  });
+
+  it('resolving 200 at:build sources never has more than 64 file reads in flight at once', async () => {
+    const count = 200;
+    const sources: Record<SourceId, SourceEntry> = {};
+    const files: Record<string, string> = {};
+    for (let i = 0; i < count; i++) {
+      sources[`id${i}`] = { at: 'build', path: `/f${i}.json`, cache: 'manual' };
+      files[`/f${i}.json`] = '{"v":1}';
+    }
+    const map: SourceMap = { version: 1, sources };
+
+    let active = 0;
+    let peak = 0;
+    const fs: NonNullable<JsonPorts['fs']> = {
+      async read(path: string) {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        active--;
+        const text = files[path];
+        if (text === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        return text;
+      },
+      async stat() {
+        return { mtimeMs: 0, size: 0 };
+      },
+    };
+
+    const output = await prefetch(map, outDir, { fs });
+
+    expect(peak).toBeLessThanOrEqual(64);
+    expect(peak).toBe(64); // 200 sources saturate the ceiling rather than under-using it
+    expect(Object.keys(output.lock.sources)).toHaveLength(count);
   });
 });

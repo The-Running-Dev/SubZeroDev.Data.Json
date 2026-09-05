@@ -1,5 +1,6 @@
 import { createCacheManager } from './cache-manager.js';
 import { checkRequiredPorts, normalizeSourceMap } from './config.js';
+import { FAN_OUT_CEILING, fanOut } from './concurrency.js';
 import { JsonError } from './errors.js';
 import { createInFlightManager } from './in-flight.js';
 import { runPipeline } from './pipeline.js';
@@ -61,7 +62,7 @@ export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): Jso
   }
 
   async function loadMany(ids: readonly SourceId[]): Promise<Readonly<Record<SourceId, JsonResult<unknown>>>> {
-    const results = await Promise.all(ids.map((id) => loadById<unknown>(id)));
+    const results = await fanOut(ids, FAN_OUT_CEILING, (id) => loadById<unknown>(id));
     const out: Record<SourceId, JsonResult<unknown>> = {};
     ids.forEach((id, i) => {
       out[id] = results[i]!;
@@ -70,7 +71,7 @@ export function createJsonLoader(sources: SourceMap, ports: JsonPorts = {}): Jso
   }
 
   async function preload(ids: readonly SourceId[]): Promise<void> {
-    const results = await Promise.all(ids.map((id) => loadById<unknown>(id)));
+    const results = await fanOut(ids, FAN_OUT_CEILING, (id) => loadById<unknown>(id));
     const failures: JsonFailure[] = [];
     ids.forEach((id, i) => {
       const result = results[i]!;
