@@ -202,17 +202,14 @@ per-call rather than per-entry split I15 draws for `validated`.
 - **`load` and `loadById` differ only in where the request comes from** — the caller's, or
   synthesized from the map entry. Neither branches on `at` (I9), and both are subject to I2:
   no member of this interface except `preload` ever throws or rejects.
+- **The three eager members are bounded** — `loadMany`, `preload`, and `/build`'s `prefetch`
+  each fan out to at most 64 loads at a time, per call (I43). A caller sizes the array; it does
+  not size the concurrency.
 - **`loadMany` never rejects** and returns a result per id. One unreachable source does not deny
   the caller the other four; aggregating them into a single failure is what §4.3 rules out.
 - **`preload` is the only member that rejects.** Its guarantee is that every named id resolved
   once, at the moment it was called; it does not extend past the cache policy that warmed it
   (`90-decisions.md` D38). It resolves every id before failing and names all of them (I20).
-- **Eager resolution is bounded, per call, at 64 loads in flight** (I43). `loadMany` and
-  `preload` take a caller-sized array, and the ceiling is what stands in for the smallness
-  the source map is assumed to have and the array never promises (`90-decisions.md` O5).
-  Below it nothing changes; above it the fan-out batches. It is a fixed constant and never a
-  parameter — no member here accepts a concurrency argument, and adding one is a contract
-  amendment, not a configuration change.
 - **`invalidate()` with no id drops everything this loader owns, and nothing another owns**
   (I29). It bumps an epoch rather than enumerating keys, which is why `CacheStore` needs no
   enumeration member and why `clear()` is never called.
@@ -295,9 +292,8 @@ I37 and I38 in the 2026-08-08 re-derivation, I39 with D53 later that day, and I4
 the re-derivation after it. I17 was **narrowed** in the pass after that (D61) and I40 extended
 with it; no id was added for either, because a correction to an existing invariant is not a new
 invariant. I42 was appended in the same pass, with D62 and D63. I32 was **extended** on
-2026-09-03 (D70) for the same reason and likewise without a new id. I43 was appended later
-that day, resolving §12 U5 (O5) — a new id, because a bound where none was contracted is a new
-invariant rather than a correction to one.
+2026-09-03 (D70) for the same reason and likewise without a new id. I43 and I44 were appended on
+2026-09-03 (D71, D72), resolving what was §12 U5 and issue #37 respectively.
 
 This section carries no declarations and points at none: an invariant is exactly the thing a
 type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouched.
@@ -310,7 +306,7 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I4** | `unwrap` is never inferred from payload shape. Absent means `'none'`, and `'none'` means the parsed body is returned exactly as parsed. | core |
 | **I5** | Two payloads that are equal as JSON values produce the same `digest`, regardless of key order or whitespace. Two that differ produce different digests. | core |
 | **I6** | Every port a supplied entry needs is present at construction, or `createJsonLoader` throws `JsonError('config.missingPort')` naming the entry and the port: `fetch` for an http entry, `fs` for a file entry, `clock` for a `ttl` policy, `rng` for retry jitter, `schedule` for a timeout or a non-zero delay. The check covers exactly the entries in the map supplied, never a wider set. Never a silent downgrade. **One clause is deliberately map-independent** (D48): a supplied `fetch` port requires a `schedule` port alongside it even where no entry declares an http source, because an ad-hoc `JsonRequest.source` (§3) can name an http URL the map never mentions and carries the default timeout. Where neither port is supplied the ad-hoc attempt runs unbounded and fails on the absent `fetch`; it never throws, because I2 admits no exception. | core |
-| **I7** | `headers` may be declared only in `sources.server.yml`; declaring them in the public map is `config.invalidEntry`. The build gate's guarantee is **filename-scoped**: no file whose basename is a server-map source id appears in the public output directory. That catches a prefetched artifact written where a browser can read it, and nothing else — a server URL or a declared header name inlined into a JS chunk passes it (D46). Asserted in CI. Widening the gate to a content scan is issue #37 and is not contracted here. | build |
+| **I7** | `headers` may be declared only in `sources.server.yml`; declaring them in the public map is `config.invalidEntry`. The build gate's guarantee is **filename-scoped**: no file whose basename is a server-map source id appears in the public output directory. That catches a prefetched artifact written where a browser can read it, and nothing else — a server URL or a declared header value inlined into a JS chunk passes it (D46). Asserted in CI. It is the cheap half and stays; the content half is I44 (D72), and neither subsumes the other. | build |
 | **I8** | An `at: build` source is never fetched at runtime; an `at: runtime` source is never resolved at build. `prefetch` constructs its loader over the map filtered to its `at: build` entries, so a build demands under I6 exactly the ports the entries it resolves need, and never a port for an `at: runtime` entry it is guaranteed not to touch. | build |
 | **I9** | A source's `at` value may change without any call site changing. | core, build |
 | **I10** | `meta.validated` is `true` only when a validator ran in this call and returned `ok`. Absent validator means `false`, never `true`. | core |
@@ -346,7 +342,8 @@ type cannot state, which is why the 2026-09-03 pointer pass (D69) left it untouc
 | **I40** | A lookup is a hit only where I16's source comparison passes **and** the entry's declared policy admits it. `manual` admits any stored entry, until `invalidate` drops it. `ttl` admits an entry whose `storedAt` is non-null and for which `clock() - storedAt < ttlMs` — the window is half-open, so an entry exactly at `ttlMs` has expired, and an entry stored without a clock is never a hit. `mtime` admits an entry whose stored `(mtimeMs, size)` equals the stamp taken before this read, with a null stamp on either side never a hit (I25). Everything else is a miss, and it is a miss that §5's in-flight join is checked against. A read that is not cache-eligible (§3) evaluates none of these conditions: it performs no lookup at all, so it is neither a hit nor the kind of miss I17's join is reached from (D61). | core |
 | **I41** | A loader normalizes its `SourceMap` once, at construction. The set of ids it can resolve, and each entry's normalized source, `unwrap`, cache policy, timeout, retry, and `maxBytes`, are fixed for that loader's life: adding, removing, or editing an entry in the `SourceMap` object after `createJsonLoader` returns changes no later load, and normalization is never re-derived per read. A changed source map means a new loader, which is what makes the map a construction input rather than mutable state the cache would have to track. | core |
 | **I42** | `parseSourceMap` and `readSourceMap` accept exactly the maps `createJsonLoader` accepts and reject exactly the ones it rejects, because they apply the core's own entry check by relative import into `src/core/` rather than a second copy of §6's rules (D62, I37). The reader adds one check the core's cannot make, because the core's input is already typed: that the parsed document is an object carrying a `sources` record. Every failure out of either is a `JsonError` (I24) — `config.unreadable` where the bytes could not be obtained, `config.invalidEntry` for everything else, and never a `YAMLException` or a bare `TypeError`. | node |
-| **I43** | Eager resolution holds at most **64** loads in flight at once. The bound is **per call**: one call to `loadMany`, `preload`, or `prefetch` starts a further id's load only once an earlier one has settled, so `n` ids reach a peak of `min(n, 64)` simultaneous port calls rather than `n`. It is deliberately **not** a per-loader or per-process semaphore — two concurrent `loadMany` calls may reach 128 in flight, and that is the honest limit of what this bounds. A shared gate would change behaviour below the ceiling, where the smallness assumption still holds and nothing is wrong; this ceiling engages only where a single caller-sized array has already violated it (`90-decisions.md` O5). Batching changes nothing else: results keep caller order, `loadMany` still never rejects (§5), every id is still resolved before failing with every failure named (I20), and each resolved id still emits exactly one event (I38). The ceiling is a fixed constant and never a parameter — no member of `JsonLoader` and no `prefetch` argument accepts one, which is what makes it a bound rather than a knob. Asserted by a test measuring peak simultaneous port calls, which fails when the bound is removed. | core, build |
+| **I43** | Eager resolution is **bounded**: a single call to `loadMany`, `preload`, or `prefetch` has at most **64** loads in flight at any instant, however long the id list it was given. The bound is **per call, not per loader** — two concurrent `loadMany` calls may reach 128 between them — because the O5 entry's own terms fix it there (D71): below the ceiling behaviour is identical to today, which a loader-wide semaphore would break by throttling one call on account of another's. Below it every id starts at once; above it the fan-out becomes batches. Batching never converts a partial failure into an early stop: every id is attempted whatever an earlier id returned, which is what keeps I20 true once the ids no longer start together, and resolution order stays nondeterministic, which is why I21 emits sorted. The ceiling is **not configurable** — no port, no factory option, and no source-map field reaches it (O5 rejected a knob outright) — and `/build` is bound by the core's single constant reached across I37's permitted edge, never by a second copy of the number. It raises no reason code of its own: it lowers the odds of a descriptor exhaustion, and does nothing to how one is classified when it happens. | core, build |
+| **I44** | The public/server gate also **scans the bytes** of every file in the public output for each server entry's `url` and each of its declared **header values**, with common JSON and JS string escaping normalised first so that an escaped occurrence is not a miss. A hit is `build.serverSourceLeaked` and fails the build; there is no suppression mechanism, no per-entry opt-out, and no severity below failure. Three exclusions are deliberate, not gaps. **Header names are never scanned** — a name is not a secret and `Authorization` ships inside any HTTP client in the bundle, so scanning names would find the one item that is not a leak while being the only item that collides. **A header value shorter than 8 characters is not scanned**, for the same reason at the other end. And **the message never carries the matched text**, only the id, the file, and which class matched, because a gate that prints a header value writes the credential into the CI log it was raised to protect. Both a whole `url` and its origin-and-path prefix count as matches, so a rewritten query string still trips it. What this **does not** prove, stated rather than implied (D72, D46's move at the wider scope): it catches *accidental* inlining and not an adversary — an occurrence split across concatenation, base64-encoded, or otherwise transformed passes clean, and no scan over output bytes can change that. Runs under I22's ordering, in the same call as I7. | build |
 
 ## 9. Subpath Exports
 
@@ -367,8 +364,8 @@ visibility to a type checker. What each declaration cannot say:
 | `useJson` | `src/react/use-json.ts` | Widens a `JsonResult<T>` with `loading` and `refetch`. Reads its loader from the nearest provider and nowhere else; with none above it, throws `config.missingProvider` (I39). Unmounting suppresses the state update, it does not abort the request (D55) |
 | `JsonBoundary` | `src/react/json-boundary.tsx` | Renders from `reason`, never from `message` (`10-design.md` §4.2). Same provider requirement as `useJson` |
 | `zodValidator` | `src/zod/zod-validator.ts` | Adapts a zod schema to the core's `Validator<T>` seam and is the whole of `/zod`. Keeps zod out of the core, as an optional peer resolved by no other subpath |
-| `prefetch`, `PrefetchOutput` | `src/build/prefetch.ts` | Writes nothing until everything resolves, and names every failure rather than the first (I20). Its `runtimeMap` has every `at: build` entry rewritten to inline (I33); its loader is constructed over that half of the map alone (I8, D43) |
-| `assertNoServerSourcesInBundle` | `src/build/gates.ts` | Filename-scoped, deliberately (I7, D46). Must run after the last write into the public directory (I22) |
+| `prefetch`, `PrefetchOutput` | `src/build/prefetch.ts` | Writes nothing until everything resolves, and names every failure rather than the first (I20). Fans out under the core's ceiling, not a bound of its own (I43). Its `runtimeMap` has every `at: build` entry rewritten to inline (I33); its loader is constructed over that half of the map alone (I8, D43) |
+| `assertNoServerSourcesInBundle` | `src/build/gates.ts` | Two checks under one name and one signature: the filename scope (I7) and the content scan (I44). Must run after the last write into the public directory (I22). Its failure message is part of the contract, not diagnostics — it must never print the text that matched (I44) |
 | `assertNoDuplicateIds` | `src/build/gates.ts` | Compares **across** the two maps. The core cannot raise this and does not: duplicate keys within one map collapse before it sees them (I23) |
 
 `ReactNode` and `ReactElement` are React's own types, reached through the optional peer
@@ -479,14 +476,18 @@ it — that section recorded it, this one is where it is answered. Gap 1 was U8,
 | **U6** | **`stats()` reports hits, misses, and entries only** (`90-decisions.md` O3). Nothing about eviction or size pressure. Adequate until a consumer caches enough to care; stated so that it is a known limit rather than an oversight. | — |
 | **U7** | **No public canonical serializer** (`30-slices.md` gap 2, `90-decisions.md` D44). J9.1 has the engine import this package's canonical serialization and delete its own copy, retiring I13's duplication. `10-design.md` §2 lists canonical serialization among what the core *owns* and exposes only `load`, the loader factory, source normalization, and the types — it determines neither which functions become public (`canonicalize` alone, or `digestOf` and `sha256Hex` with it) nor their signatures. Not invented here: adding an export later is additive and removing one after publication is not — and the package **is** published, at 0.2.0, so that asymmetry now has teeth it did not have when D44 first argued it against an unpublished 0.1.0 (`10-design.md` §2). D44's removal has since landed: `src/core/index.ts` exports none of the three, so the decision is made against J9.1's stated requirement rather than against whatever a slice happened to export. | J9 |
 
-**U5 is resolved.** Eager resolution is bounded at 64 loads in flight per call — a fixed
-ceiling in the core, not a configuration knob (`90-decisions.md` O5, 2026-09-03, which names
-the `concurrency`-option, contract-the-unboundedness, and bound-it-inside-`/node` alternatives
-and why each was rejected). I43 states the bound, what it deliberately does not cover, and what
-batching leaves unchanged; §5 records it on the loader's surface. The ceiling sits above any
-plausible hand-written source map, so it engages only where a caller-sized array has already
-violated the smallness `10-design.md` §5 assumes — below it, behaviour is what it always was.
-The id is retired, not reused.
+**U5 is resolved.** Eager resolution carries a fixed ceiling of 64 loads in flight per call,
+stated as I43 (`90-decisions.md`, the 2026-09-03 O5 entry and D71; O5 names the loader `concurrency`
+option, contracting the unboundedness outright, and bounding `/node`'s filesystem port alone, and
+why each was rejected). The ceiling sits above any source map small enough to be hand-written, so
+it engages only where `10-design.md` §5's smallness assumption has already been violated — which
+is why the answer is a ceiling and not a knob, and why neither §5 nor §6 acquires a field for it.
+What O5 leaves undetermined and I43 therefore settles is the bound's scope: that entry's "below
+the ceiling, behaviour is identical to today" admits only a per-call reading, since a loader-wide
+bound would throttle a forty-id call on account of a concurrent one. **`10-design.md` §5's closing
+paragraph still states fan-out is unbounded and now contradicts I43** — that is a decision
+changing rather than a transcription error, so it is `/design`'s to correct and is deliberately
+left standing here. The id is retired, not reused.
 
 **U8 is resolved.** `/node` owns the reader (`90-decisions.md` D62), and §9 declares it as two
 functions: `parseSourceMap(text)` for the validation half and `readSourceMap(path)` for the file
