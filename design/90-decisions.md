@@ -2074,6 +2074,63 @@ loosening it is a build that starts passing, so the direction that costs is loos
 
 ---
 
+## D73 — Redirects are refused, not followed (2026-09-05)
+
+**Context.** O15 (issue #16), the half D37 left open. `httpAttempt` (`src/core/pipeline.ts`)
+calls `ports.fetch` with no `redirect` mode, so a WHATWG fetch follows by default and strips only
+`Authorization`, `Cookie`, and `Proxy-Authorization` on a cross-origin hop. A declared `X-Api-Key`
+is on neither list, so probe F9 reproduces: the key reaches a second origin. That is not a defect
+in the core — there is no policy for it to enforce — but it contradicts what the rest of the
+design already believes about a declared header value. I7 keeps headers out of the public map to
+stop them reaching a browser, and I44 (D72) scans build output for the values themselves. Both
+treat a header value as a credential; a 302 hands it to whatever origin the upstream names, and no
+build-time gate can see that happen.
+
+**Chosen.** Refuse redirects. Every HTTP attempt requests `redirect: 'error'`, and — because a
+caller-supplied `fetch` port is a function, not a conformance guarantee — a response whose final
+origin differs from the declared source's origin fails the load even when the port followed
+anyway. No declared header can cross an origin, because there is no second request. A source that
+has permanently moved is re-declared at its real URL in the source map, once. Sources here are
+hand-written configuration, not links a user clicked, so that cost lands on the person who edits
+the file rather than at runtime. It also settles the attestation question at the root: the bytes a
+lockfile digest attests can only have come from the declared origin, which makes I30's recorded
+`location` equal to the requested one in every successful case rather than merely usually.
+
+**Rejected.** Following, with declared headers stripped on a cross-origin hop. This is the
+permissive answer that still closes the leak, and it cannot be built on top of automatic
+following: by the time the core can compare `response.url` against the declared URL, the second
+request has already gone out carrying the headers. Doing it properly means `redirect: 'manual'`
+and a redirect loop inside `pipeline.ts` — relative `Location` resolution, a hop cap, 303 method
+rewriting, and per-hop interaction with `maxBytes`, `timeoutMs`, and I18's retry accounting — plus
+a new requirement that every `fetch` port support manual mode. That is a large expansion of the
+core's HTTP surface for a read-only loader whose ports are deliberately thin, bought to avoid one
+edit to a configuration file.
+
+**Rejected.** Following as the platform does, and contracting the leak as known. No code, and it
+puts a sentence in `20-contract.md` that contradicts I7 and I44 in the same document.
+
+**Rejected.** Declaring redirect behaviour the port's business and stating no policy. The same
+outcome phrased as delegation. Every composition root then answers it, and they will not answer it
+the same way — which is what §12 U2 exists to stop.
+
+**Rejected.** Following same-origin redirects and refusing cross-origin ones. It reads as the
+moderate option and is not one: automatic following has already sent the headers before the origin
+can be compared, so it leaks in precisely the case the finding is about. The only version that
+works is the manual loop above.
+
+**Requires a contract amendment, not made here.** Issue #16's stop condition is reached. §12 U2
+resolves, an invariant stating the refusal is owed, and the reason code is a real question rather
+than a formality: `redirect: 'error'` makes a compliant fetch *reject*, which today lands on
+`json.transport` and is therefore retried under I18 — three attempts at a deterministic
+misconfiguration. A refused redirect should be non-retryable; whether that is a new reason id or a
+reuse of an existing one is `/contract`'s to write, and the code follows it.
+
+**Reversibility:** cheap while unimplemented. Once shipped, loosening is the expensive direction:
+refusing is a load that starts failing for a redirecting source, which is visible immediately,
+whereas relaxing to following is a leak that is visible to nobody.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
