@@ -11,8 +11,10 @@ import { load } from 'js-yaml';
  * on its DEFAULT_SCHEMA, then `JSON.stringify(data, null, 2)` as UTF-8. D41 records why
  * that parser and that schema — in short, DEFAULT_SCHEMA resolves a bare timestamp to a
  * `Date` that serializes ISO-with-milliseconds, and `Docs-Template/config/projects.yml`
- * has 27+ of them, so any YAML 1.2 core-schema parser rewrites published bytes that J8.2
- * requires unchanged. O26 owns whether that coercion deserves to survive.
+ * has 34 of them, so any YAML 1.2 core-schema parser rewrites published bytes that J8.2
+ * requires unchanged. D74 settles that the coercion stays: it is the only setting under which
+ * two different authoring spellings publish the same form, and quoting the scalar is the
+ * per-value opt-out CORE_SCHEMA has no counterpart for.
  *
  * Traversal is recursive and mirrors the source tree, which is `Data/build.ts`'s shape;
  * `Docs-Template`'s flat `config/` is the same walk over a tree one level deep.
@@ -57,10 +59,11 @@ export async function convertYamlToJson(from: string, to: string): Promise<numbe
 
       converted++;
     } catch (error) {
-      // Known and retained (O27): both converters log the failure, skip the file, and
-      // report a count that excludes it — so malformed YAML drops an artifact quietly.
-      // Reproducing it is the criterion; changing it is a contract question, since §9
-      // returns only a number and has nowhere to put a failure.
+      // Still as both converters behave — log the failure, skip the file, report a count
+      // that excludes it — so malformed YAML drops an artifact quietly. D75 decides this
+      // goes: conversion becomes all-or-nothing and throws naming every failed file. The
+      // change waits on the amendment, since §10.1 needs the error code and §9 needs the
+      // throw, which is /contract's pass and not this module's.
       console.error(
         `[ERROR] Failed to Process ${source}: ${error instanceof Error ? error.message : String(error)}`
       );

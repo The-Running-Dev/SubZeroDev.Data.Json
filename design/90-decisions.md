@@ -2074,6 +2074,189 @@ loosening it is a build that starts passing, so the direction that costs is loos
 
 ---
 
+## D73 — Redirects are refused, not followed (2026-09-05)
+
+**Context.** O15 (issue #16), the half D37 left open. `httpAttempt` (`src/core/pipeline.ts`)
+calls `ports.fetch` with no `redirect` mode, so a WHATWG fetch follows by default and strips only
+`Authorization`, `Cookie`, and `Proxy-Authorization` on a cross-origin hop. A declared `X-Api-Key`
+is on neither list, so probe F9 reproduces: the key reaches a second origin. That is not a defect
+in the core — there is no policy for it to enforce — but it contradicts what the rest of the
+design already believes about a declared header value. I7 keeps headers out of the public map to
+stop them reaching a browser, and I44 (D72) scans build output for the values themselves. Both
+treat a header value as a credential; a 302 hands it to whatever origin the upstream names, and no
+build-time gate can see that happen.
+
+**Chosen.** Refuse redirects. Every HTTP attempt requests `redirect: 'error'`, and — because a
+caller-supplied `fetch` port is a function, not a conformance guarantee — a response whose final
+origin differs from the declared source's origin fails the load even when the port followed
+anyway. No declared header can cross an origin, because there is no second request. A source that
+has permanently moved is re-declared at its real URL in the source map, once. Sources here are
+hand-written configuration, not links a user clicked, so that cost lands on the person who edits
+the file rather than at runtime. It also settles the attestation question at the root: the bytes a
+lockfile digest attests can only have come from the declared origin, which makes I30's recorded
+`location` equal to the requested one in every successful case rather than merely usually.
+
+**Rejected.** Following, with declared headers stripped on a cross-origin hop. This is the
+permissive answer that still closes the leak, and it cannot be built on top of automatic
+following: by the time the core can compare `response.url` against the declared URL, the second
+request has already gone out carrying the headers. Doing it properly means `redirect: 'manual'`
+and a redirect loop inside `pipeline.ts` — relative `Location` resolution, a hop cap, 303 method
+rewriting, and per-hop interaction with `maxBytes`, `timeoutMs`, and I18's retry accounting — plus
+a new requirement that every `fetch` port support manual mode. That is a large expansion of the
+core's HTTP surface for a read-only loader whose ports are deliberately thin, bought to avoid one
+edit to a configuration file.
+
+**Rejected.** Following as the platform does, and contracting the leak as known. No code, and it
+puts a sentence in `20-contract.md` that contradicts I7 and I44 in the same document.
+
+**Rejected.** Declaring redirect behaviour the port's business and stating no policy. The same
+outcome phrased as delegation. Every composition root then answers it, and they will not answer it
+the same way — which is what §12 U2 exists to stop.
+
+**Rejected.** Following same-origin redirects and refusing cross-origin ones. It reads as the
+moderate option and is not one: automatic following has already sent the headers before the origin
+can be compared, so it leaks in precisely the case the finding is about. The only version that
+works is the manual loop above.
+
+**Requires a contract amendment, not made here.** Issue #16's stop condition is reached. §12 U2
+resolves, an invariant stating the refusal is owed, and the reason code is a real question rather
+than a formality: `redirect: 'error'` makes a compliant fetch *reject*, which today lands on
+`json.transport` and is therefore retried under I18 — three attempts at a deterministic
+misconfiguration. A refused redirect should be non-retryable; whether that is a new reason id or a
+reuse of an existing one is `/contract`'s to write, and the code follows it.
+
+**Reversibility:** cheap while unimplemented. Once shipped, loosening is the expensive direction:
+refusing is a load that starts failing for a redirecting source, which is visible immediately,
+whereas relaxing to following is a leak that is visible to nobody.
+
+---
+
+## D74 — The bare-YAML timestamp coercion stays (2026-09-05)
+
+**Context.** O26 (issue #29). D41 kept `js-yaml`'s `DEFAULT_SCHEMA` because J8.2 required
+`Data`'s published bytes to be unchanged across the migration, and recorded `CORE_SCHEMA` as a
+follow-up rather than a rejection, because the argument for it — a config value is content, and
+content silently becoming a `Date` and back is a coercion nobody asked for — survived that
+decision. The issue gated the answer on a deliberate pass over `Docs-Template` and `Data` once J8
+landed. J8 has landed and the pass is done.
+
+**What the pass found.** Each repository carries exactly 34 unquoted timestamps, in one file each,
+and they are spelled differently: `Docs-Template/config/projects.yml` uses
+`2025-08-24 00:00:00+00:00`, `Data/config/portfolio/projects.yml` uses `2025-08-24T00:00:00Z`.
+Both publish `"2025-08-24T00:00:00.000Z"` today, and `Data/artifacts/portfolio/projects.json` is
+committed, so any change is a reviewable diff rather than a silent one. Downstream, the projects
+store types `lastModified` as `z.union([z.string(), z.date()])` and normalises with
+`toISOString()`, and the repository layer calls `new Date()` on a string — a string is already an
+accepted shape and nothing compares the literal.
+
+**Chosen.** `DEFAULT_SCHEMA` stays, as a positive choice rather than as inertia from J8.2.
+
+Two things the pass established that the original framing did not have. First, the coercion is
+load-bearing: it is the only reason two different authoring spellings publish identical bytes.
+Drop it and `Data` emits `"2025-08-24T00:00:00Z"`, which is valid RFC 3339 and harmless, while
+`Docs-Template` emits `"2025-08-24 00:00:00+00:00"`, which is **not** ISO 8601 — V8's `new Date`
+accepts it as a non-standard extension, and a strict `format: date-time` or
+`z.string().datetime()` validator rejects it. The published form would begin to leak how each
+source file happens to be typed. Second, and decisively, `DEFAULT_SCHEMA` has an escape hatch and
+`CORE_SCHEMA` has none: an author who wants the literal text quotes the scalar, which is what
+quoting means in YAML and needs nothing from this package. There is no corresponding opt-*in*
+under `CORE_SCHEMA` — a caller who wants a normalised timestamp cannot ask for one at all.
+
+**Known-and-retained.** The coercion is still a coercion. A date-only `2019-04-16` acquires a
+midnight-UTC time it never declared, `JSON.stringify` fabricates the `.000` milliseconds, and any
+future scalar matching the timestamp regex is converted with no warning. The remedy in every one
+of those cases is to quote the value, and that is the whole of the mitigation being accepted here.
+
+**Rejected.** `CORE_SCHEMA`, after first rewriting `Docs-Template`'s 34 values to the `T…Z` form.
+This is the rigorous reading and the one that makes content verbatim, at the cost of a one-off
+34-line diff in each published artifact and a coordinated change across three repositories. It was
+rejected because what it buys — the file says what it means — is already available per value by
+quoting, while what it costs is permanent: the published form becomes a function of authoring
+style, and every consumer inherits whichever spelling an author reached for.
+
+**Rejected.** `CORE_SCHEMA` with every timestamp quoted in both repositories. Verbatim *and*
+stable, and the only version of the strict answer that keeps the published form canonical. It
+moves the burden onto every content author for every future file, enforced by nothing — a
+convention that holds until the first person types an unquoted date.
+
+**Rejected.** Making the schema selectable, as a parameter on `convertYamlToJson`. It is a new
+public interface, so it reaches issue #29's stop condition and would be `/contract`'s pass; and it
+converts a single content decision into a per-call flag that each caller answers separately, which
+is how the two repositories end up publishing different forms of the same corpus again.
+
+**Noted, not decided here.** `Docs-Template`'s 34 values are ISO-valid only *because* the coercion
+normalises them. That is a latent trap rather than a present defect, and rewriting them to `T…Z`
+changes no published byte today. It is content work in another repository, not this package's, and
+is left as an observation rather than filed.
+
+**Reversibility:** cheap in the code — one argument to `load()` — and expensive in the corpus, since
+the direction that costs is switching after more content has been authored against the current
+behaviour.
+
+---
+
+## D75 — Conversion is all-or-nothing and throws, naming every failed file (2026-09-05)
+
+**Context.** O27 (issue #30). `convertYamlToJson` logs a per-file parse failure to `console.error`,
+skips the file, and returns a count it is absent from — reproduced from both existing converters,
+which is what J2.3 required. The CLI (`src/node/cli.ts`) is handed only that count, so it prints
+its summary line and exits **0**, and `Data/build.ts` calls that binary. A malformed YAML file
+therefore drops a published artifact while CI stays green; the only signal is a count one smaller
+than yesterday's, which nothing reads. The behaviour is inherited from the two converters rather
+than chosen by either — neither was ever asked the question.
+
+**Chosen.** Parse every file, write nothing unless every file parsed, and throw a coded
+`JsonError` naming every failure rather than the first. The return type stays `Promise<number>`,
+so §9's row keeps its meaning on the success path and no caller reading the count breaks; the
+CLI's existing `catch` already sets a non-zero exit code, so the build goes red without a change
+there.
+
+This package has already decided the same question on the sibling path. `prefetch` is the other
+build-time producer of published files, and I20 with `build.failed` settle it — attempt every id,
+name every failure, and, in §10.1's own words, *nothing was written; the previous output is
+untouched*. The converter is that situation with a different parser, and nothing in the corpus
+argues for answering it differently: `Data` has 7 YAML files and `Docs-Template` one, so holding
+the converted documents before writing costs nothing measurable. A failed run leaves the previous
+artifacts in place — stale and complete, rather than fresh and missing one.
+
+**The cost, accepted rather than glossed.** One malformed file now blocks the publication of every
+artifact in the run, where today the rest still publish. Since every option that fixes this at all
+turns the build red, the only thing actually traded is whether the output directory is left
+half-updated, and I20 already ruled on that.
+
+**Rejected.** Throwing, but keeping the files that did convert. The smaller change, and it makes
+the outcome of a run depend on which file happened to break. It also leaves the two build-time
+producers with contradictory guarantees about partial output, which is the kind of inconsistency
+that is not noticed until it is being debugged.
+
+**Rejected.** Returning `{ converted, failures[] }` instead of a number, mirroring `preload`'s
+array directly. Structurally the most informative option, and rejected because it is a breaking
+change to an export already published at 0.2.0, bought for information whose only realistic use is
+to fail the build — which a throw does without the migration.
+
+**Rejected.** Keeping the behaviour and contracting it as known, with §9 gaining a sentence saying
+a failed file is logged, skipped, and excluded from the count. Zero work, and it writes into the
+contract that a green build may quietly unpublish content.
+
+**Requires a contract amendment, not made here.** Issue #30's stop condition is reached. §10.1
+needs a new `JsonErrorCode` for the failure — carrying the failed paths, in the shape
+`preload.failed` and `build.failed` already use — and §9's `convertYamlToJson` row needs the throw
+and the all-or-nothing guarantee, which is what J2.9 requires of any `/node` throw. Both are
+`/contract`'s pass; the code and its tests follow it. J2.3's "reproduces the behaviour of both
+existing converters" also stops being true in this one respect, deliberately, and the amendment
+should say so rather than leaving the criterion to be read as still describing the tree.
+
+**Test obligation, not discharged here.** Under `AGENTS.md` *Verification*, this is not done until
+it has rejected something: a run over a directory containing one malformed file writes no output
+at all and throws naming that file, and a run over a directory with several failures names every
+one of them, with the counts stated.
+
+**Reversibility:** cheap in the code and expensive in the contract — the error code, once
+published, is a public surface, and relaxing back to skipping is a build that stops failing, which
+nobody notices.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
