@@ -2321,15 +2321,8 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
 
-**Implement I45: refuse redirects, and raise `json.redirect`.** D73 and D76 are decided and
-`20-contract.md` carries the amendment (I45, `json.redirect` in §10.2, I18's never-retried list,
-I28's 502 mapping); the code does not. `src/core/pipeline.ts`'s `httpAttempt` passes no `redirect`
-mode and `ReasonCode` in `src/core/types.ts` still carries eight codes. Owed: the request mode, the
-final-origin comparison against the declared source, the ninth code, `/node`'s router row, and — per
-`00-brief.md` §7.1 — a test that fails when the invariant is removed, in both halves, since a
-conforming port's refusal and a non-conforming port's follow are different code paths. Not a slice:
-it takes `/fix`'s route, at `sonnet`, `medium`, and gains a row in `30-slices.md`'s *Invariants
-landed outside the slice plan* when it lands.
+The I45 redirect-refusal implementation item (D73, D76) was filed on 2026-09-05 as issue #107
+and removed from this section likewise.
 
 The `src/core/types.ts` header-comment-direction item was filed on 2026-09-03 as issue #96,
 fixed via PR #97, and removed from this section likewise.
