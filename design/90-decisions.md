@@ -2131,6 +2131,70 @@ whereas relaxing to following is a leak that is visible to nobody.
 
 ---
 
+## D74 — The bare-YAML timestamp coercion stays (2026-09-05)
+
+**Context.** O26 (issue #29). D41 kept `js-yaml`'s `DEFAULT_SCHEMA` because J8.2 required
+`Data`'s published bytes to be unchanged across the migration, and recorded `CORE_SCHEMA` as a
+follow-up rather than a rejection, because the argument for it — a config value is content, and
+content silently becoming a `Date` and back is a coercion nobody asked for — survived that
+decision. The issue gated the answer on a deliberate pass over `Docs-Template` and `Data` once J8
+landed. J8 has landed and the pass is done.
+
+**What the pass found.** Each repository carries exactly 34 unquoted timestamps, in one file each,
+and they are spelled differently: `Docs-Template/config/projects.yml` uses
+`2025-08-24 00:00:00+00:00`, `Data/config/portfolio/projects.yml` uses `2025-08-24T00:00:00Z`.
+Both publish `"2025-08-24T00:00:00.000Z"` today, and `Data/artifacts/portfolio/projects.json` is
+committed, so any change is a reviewable diff rather than a silent one. Downstream, the projects
+store types `lastModified` as `z.union([z.string(), z.date()])` and normalises with
+`toISOString()`, and the repository layer calls `new Date()` on a string — a string is already an
+accepted shape and nothing compares the literal.
+
+**Chosen.** `DEFAULT_SCHEMA` stays, as a positive choice rather than as inertia from J8.2.
+
+Two things the pass established that the original framing did not have. First, the coercion is
+load-bearing: it is the only reason two different authoring spellings publish identical bytes.
+Drop it and `Data` emits `"2025-08-24T00:00:00Z"`, which is valid RFC 3339 and harmless, while
+`Docs-Template` emits `"2025-08-24 00:00:00+00:00"`, which is **not** ISO 8601 — V8's `new Date`
+accepts it as a non-standard extension, and a strict `format: date-time` or
+`z.string().datetime()` validator rejects it. The published form would begin to leak how each
+source file happens to be typed. Second, and decisively, `DEFAULT_SCHEMA` has an escape hatch and
+`CORE_SCHEMA` has none: an author who wants the literal text quotes the scalar, which is what
+quoting means in YAML and needs nothing from this package. There is no corresponding opt-*in*
+under `CORE_SCHEMA` — a caller who wants a normalised timestamp cannot ask for one at all.
+
+**Known-and-retained.** The coercion is still a coercion. A date-only `2019-04-16` acquires a
+midnight-UTC time it never declared, `JSON.stringify` fabricates the `.000` milliseconds, and any
+future scalar matching the timestamp regex is converted with no warning. The remedy in every one
+of those cases is to quote the value, and that is the whole of the mitigation being accepted here.
+
+**Rejected.** `CORE_SCHEMA`, after first rewriting `Docs-Template`'s 34 values to the `T…Z` form.
+This is the rigorous reading and the one that makes content verbatim, at the cost of a one-off
+34-line diff in each published artifact and a coordinated change across three repositories. It was
+rejected because what it buys — the file says what it means — is already available per value by
+quoting, while what it costs is permanent: the published form becomes a function of authoring
+style, and every consumer inherits whichever spelling an author reached for.
+
+**Rejected.** `CORE_SCHEMA` with every timestamp quoted in both repositories. Verbatim *and*
+stable, and the only version of the strict answer that keeps the published form canonical. It
+moves the burden onto every content author for every future file, enforced by nothing — a
+convention that holds until the first person types an unquoted date.
+
+**Rejected.** Making the schema selectable, as a parameter on `convertYamlToJson`. It is a new
+public interface, so it reaches issue #29's stop condition and would be `/contract`'s pass; and it
+converts a single content decision into a per-call flag that each caller answers separately, which
+is how the two repositories end up publishing different forms of the same corpus again.
+
+**Noted, not decided here.** `Docs-Template`'s 34 values are ISO-valid only *because* the coercion
+normalises them. That is a latent trap rather than a present defect, and rewriting them to `T…Z`
+changes no published byte today. It is content work in another repository, not this package's, and
+is left as an observation rather than filed.
+
+**Reversibility:** cheap in the code — one argument to `load()` — and expensive in the corpus, since
+the direction that costs is switching after more content has been authored against the current
+behaviour.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
