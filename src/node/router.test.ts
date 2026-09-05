@@ -93,6 +93,7 @@ describe('jsonRouter (J2.4, J2.7)', () => {
     ['json.timeout', 504],
     ['json.transport', 504],
     ['json.status', 502],
+    ['json.redirect', 502],
     ['json.parse', 502],
     ['json.schema', 502],
     ['json.tooLarge', 502],

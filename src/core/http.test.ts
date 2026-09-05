@@ -12,11 +12,13 @@ import type { ScheduledWait, SourceMap } from './types.js';
 function controllableFetch() {
   let calls = 0;
   const urls: string[] = [];
+  const inits: Array<RequestInit | undefined> = [];
   const pending: Array<{ resolve: (r: Response) => void; reject: (e: unknown) => void }> = [];
 
   const fetch = (url: string, init?: RequestInit): Promise<Response> => {
     calls++;
     urls.push(url);
+    inits.push(init);
     return new Promise<Response>((resolve, reject) => {
       pending.push({ resolve, reject });
       init?.signal?.addEventListener('abort', () => {
@@ -34,6 +36,9 @@ function controllableFetch() {
     },
     get urls() {
       return urls;
+    },
+    get inits() {
+      return inits;
     },
     resolveNext(response: Response) {
       const next = pending.shift();
@@ -173,9 +178,11 @@ describe('J12.1: an http entry resolves through the fetch port', () => {
     const loader = createJsonLoader(httpMap('https://example.test/a.json'), { fetch: f.fetch, schedule: fakeSchedule().schedule });
     const p = loader.loadById('a');
     await flush();
-    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://cdn.example.test/a.json' }));
+    // Same origin, different path: I45 refuses only a final-origin mismatch, so a same-origin
+    // move still records where the bytes actually came from.
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://example.test/moved/a.json' }));
     const r = await p;
-    expect(r.ok && r.meta.location).toBe('https://cdn.example.test/a.json');
+    expect(r.ok && r.meta.location).toBe('https://example.test/moved/a.json');
   });
 });
 
@@ -485,9 +492,10 @@ describe('J12.8: invariant-removal coverage', () => {
     const loader = createJsonLoader(httpMap('https://example.test/a.json'), { fetch: f.fetch, schedule: fakeSchedule().schedule });
     const p = loader.loadById('a');
     await flush();
-    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://other.example.test/a.json' }));
+    // Same origin, different path — I45 leaves this half of the pair alone.
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://example.test/other/a.json' }));
     const r = await p;
-    expect(r.ok && r.meta.location).toBe('https://other.example.test/a.json');
+    expect(r.ok && r.meta.location).toBe('https://example.test/other/a.json');
   });
 
   // D42 — a redirected source's cache lookup compares source identity, not the resolved
@@ -498,9 +506,9 @@ describe('J12.8: invariant-removal coverage', () => {
     const loader = createJsonLoader(httpMap('https://example.test/a.json'), { fetch: f.fetch, schedule: fakeSchedule().schedule });
     const p1 = loader.loadById('a');
     await flush();
-    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://other.example.test/a.json' }));
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://example.test/other/a.json' }));
     const r1 = await p1;
-    expect(r1.ok && r1.meta.location).toBe('https://other.example.test/a.json');
+    expect(r1.ok && r1.meta.location).toBe('https://example.test/other/a.json');
     expect(f.calls).toBe(1);
 
     const p2 = loader.loadById('a');
@@ -509,6 +517,80 @@ describe('J12.8: invariant-removal coverage', () => {
     const r2 = await p2;
     expect(r2.ok && r2.meta.cached).toBe(true);
     expect(r2.ok && r2.data).toEqual({ v: 1 });
+  });
+
+  // I45 — an http load refuses redirects: every attempt requests redirect: 'error', and the
+  // final origin of any response that arrives is compared against the declared source's origin.
+  it('I45', async () => {
+    const f = controllableFetch();
+    const loader = createJsonLoader(httpMap('https://example.test/a.json', { retry: { attempts: 3, delayMs: 0 } }), {
+      fetch: f.fetch,
+      schedule: fakeSchedule().schedule,
+    });
+    const p = loader.loadById('a');
+    await flush();
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://attacker.example.test/a.json' }));
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe('json.redirect');
+    expect(f.calls).toBe(1); // never retried
+  });
+});
+
+describe('I45: an http load refuses redirects', () => {
+  it('every attempt requests redirect: \'error\'', async () => {
+    const f = controllableFetch();
+    const loader = createJsonLoader(httpMap('https://example.test/a.json'), { fetch: f.fetch, schedule: fakeSchedule().schedule });
+    const p = loader.loadById('a');
+    await flush();
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}' }));
+    await p;
+    expect(f.inits[0]?.redirect).toBe('error');
+  });
+
+  it('a conforming port rejects a redirect itself, arriving as json.transport (I45, D76) — retried under I18', async () => {
+    const f = controllableFetch();
+    const loader = createJsonLoader(httpMap('https://example.test/a.json', { retry: { attempts: 2, delayMs: 0 } }), {
+      fetch: f.fetch,
+      schedule: fakeSchedule().schedule,
+    });
+    const p = loader.loadById('a');
+    await flush();
+    // A conforming fetch port throws on a redirect under redirect: 'error' — indistinguishable
+    // from any other transport failure, so it is caught only as json.transport, not json.redirect.
+    const err = new TypeError('Failed to fetch');
+    f.rejectNext(err);
+    await flush();
+    expect(f.calls).toBe(2); // json.transport is retried
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}' }));
+    const r = await p;
+    expect(r.ok).toBe(true);
+  });
+
+  it('a non-conforming port that follows a redirect anyway is caught by the final-origin comparison, as json.redirect — never retried', async () => {
+    const f = controllableFetch();
+    const loader = createJsonLoader(httpMap('https://example.test/a.json', { retry: { attempts: 3, delayMs: 0 } }), {
+      fetch: f.fetch,
+      schedule: fakeSchedule().schedule,
+    });
+    const p = loader.loadById('a');
+    await flush();
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://redirected.example.test/a.json' }));
+    const r = await p;
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe('json.redirect');
+    expect(f.calls).toBe(1); // never retried, unlike json.transport
+    expect(loader.stats().entries).toBe(0); // writes nothing to the cache
+  });
+
+  it('a same-origin move is not a redirect refusal — only the origin is compared, not the path', async () => {
+    const f = controllableFetch();
+    const loader = createJsonLoader(httpMap('https://example.test/a.json'), { fetch: f.fetch, schedule: fakeSchedule().schedule });
+    const p = loader.loadById('a');
+    await flush();
+    f.resolveNext(fakeResponse({ status: 200, body: '{"v":1}', url: 'https://example.test/moved/a.json' }));
+    const r = await p;
+    expect(r.ok).toBe(true);
   });
 });
 

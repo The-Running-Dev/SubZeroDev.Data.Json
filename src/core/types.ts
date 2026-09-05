@@ -13,6 +13,7 @@ export type ReasonCode =
   | 'json.ok'
   | 'json.transport'
   | 'json.status'
+  | 'json.redirect'
   | 'json.timeout'
   | 'json.parse'
   | 'json.schema'

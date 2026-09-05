@@ -35,6 +35,7 @@ function phaseForCoreFailure(reason: Exclude<ReasonCode, 'json.ok'>): EventPhase
   if (
     reason === 'json.transport' ||
     reason === 'json.status' ||
+    reason === 'json.redirect' ||
     reason === 'json.timeout' ||
     reason === 'json.notFound' ||
     reason === 'json.tooLarge'
@@ -66,6 +67,15 @@ function headersEqual(a: Readonly<Record<string, string>> | undefined, b: Readon
   const bKeys = Object.keys(b ?? {});
   if (aKeys.length !== bKeys.length) return false;
   return aKeys.every((key) => a![key] === b?.[key]);
+}
+
+/** I45: origins compare, not full URLs — an unparseable URL never matches anything. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -410,6 +420,7 @@ async function httpAttempt(
     response = await ports.fetch!(source.url, {
       ...(source.headers !== undefined ? { headers: source.headers } : {}),
       signal: controller.signal,
+      redirect: 'error',
     });
   } catch (e) {
     const wasTimeout = timedOut;
@@ -420,6 +431,18 @@ async function httpAttempt(
   }
 
   const location = response.url || source.url;
+
+  /**
+   * I45: the request mode above stops a conforming port before a redirect ever produces a
+   * response here — that rejection already came back as `json.transport`. This catches the
+   * other half: a non-conforming port that followed the redirect anyway and returned a final
+   * response as if nothing happened. Checked before `response.ok` because I45 compares the
+   * origin of "any response that arrives", not only a successful one.
+   */
+  if (originOf(location) !== originOf(source.url)) {
+    finish();
+    return { ok: false, reason: 'json.redirect', message: `response resolved to a different origin: ${location}`, bytes: 0, location };
+  }
 
   if (!response.ok) {
     finish();
