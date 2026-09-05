@@ -484,10 +484,10 @@ it engages only where `10-design.md` §5's smallness assumption has already been
 is why the answer is a ceiling and not a knob, and why neither §5 nor §6 acquires a field for it.
 What O5 leaves undetermined and I43 therefore settles is the bound's scope: that entry's "below
 the ceiling, behaviour is identical to today" admits only a per-call reading, since a loader-wide
-bound would throttle a forty-id call on account of a concurrent one. **`10-design.md` §5's closing
-paragraph still states fan-out is unbounded and now contradicts I43** — that is a decision
-changing rather than a transcription error, so it is `/design`'s to correct and is deliberately
-left standing here. The id is retired, not reused.
+bound would throttle a forty-id call on account of a concurrent one. `10-design.md` §5's closing
+paragraph contradicted I43 by still calling fan-out unbounded; that was a decision changing rather
+than a transcription error, so it was `/design`'s to correct, and it has been — §5 now states the
+bound and cites I43 for it. The id is retired, not reused.
 
 **U8 is resolved.** `/node` owns the reader (`90-decisions.md` D62), and §9 declares it as two
 functions: `parseSourceMap(text)` for the validation half and `readSourceMap(path)` for the file
