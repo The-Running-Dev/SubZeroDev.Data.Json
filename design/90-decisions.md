@@ -2257,6 +2257,53 @@ nobody notices.
 
 ---
 
+## D76 — A refused redirect is `json.redirect`, a new reason code (2026-09-05)
+
+**Context.** D73 decides that redirects are refused rather than followed, and routes the contract
+amendment to `/contract` with one question left open: a refused redirect should be non-retryable,
+and whether that is a new reason id or a reuse of an existing one "is `/contract`'s to write, and
+the code follows it." `20-contract.md` I18 makes retryability a function of the reason code alone —
+`json.transport` and `json.timeout` retry, everything else does not — so the id is not cosmetic.
+
+**What reading the code changed about the question.** `httpAttempt` (`src/core/pipeline.ts`) passes
+no `redirect` mode and already reads `response.url` for `location`, so D73's origin comparison is
+cheap and has its input in hand. But the two halves of the mechanism are not equally detectable.
+A port that followed a redirect anyway is caught by the comparison, determinately. A **conforming**
+port under `redirect: 'error'` **rejects**, with a `TypeError` whose message is
+implementation-specific, and the core cannot tell that from a DNS failure or a dropped connection
+without reading that text — which is the port-specific fragility this contract avoids everywhere
+else. So the ordinary case raises `json.transport` and is retried whatever id is chosen. D73's
+security claim is untouched by this, because refusing is what stops the second request; what is
+reduced is the share of the retry saving. That limit is stated in I45 rather than left to be
+discovered.
+
+**Chosen.** A new `json.redirect`. Non-retryable, terminal for phase `fetch`, raised on the
+final-origin mismatch, mapped to 502 by I28. `ReasonCode` widens by one, and the ninth code is the
+only one of these options that makes the contract state something true in every case it covers.
+
+**Rejected.** Reuse `json.status`. It fits the intuition that a redirect is a 3xx, and its existing
+caller guidance — any status outside 408/429/5xx is a misconfigured URL — is already the right
+advice. But under `redirect: 'error'` there is no status to report, and in the half the core can
+actually detect the status is **2xx**: the code would name a status that is not the reason.
+
+**Rejected.** Reuse `json.transport`, with an exemption carved into I18. No union widening and no
+consumer breaks. But retryability would stop being a function of the reason code alone, which is
+the property I18's whole structure rests on and the only reason a caller can decide what to do from
+`reason` without a second table. It also tells the caller to treat a deterministic misconfiguration
+as an outage.
+
+**Rejected.** Reuse `json.unresolved`. It is the id for an absent entry or a malformed request, and
+it forces `meta.provider` to `'none'` — both false here.
+
+**Cost accepted.** Widening `ReasonCode` breaks a consumer's exhaustive `switch` at compile time.
+The package is at 0.2.0 and its consumers are the ones in this repository's companion set, so this
+is the cheapest moment the widening will ever be available; after 1.0 it is a major.
+
+**Reversibility:** cheap while unimplemented. Once published, removing a reason code is breaking
+and narrowing what raises it is not, so the direction that costs is removal.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -2273,6 +2320,16 @@ A staging area, not a home: an item stays here only until `/track` files it as a
 then it is removed. New items go here as bullets, each starting with a **bolded lead sentence**
 — that sentence becomes the issue title when `/track` files it (see
 `.claude/commands/track.md`, "Open items → issues").
+
+**Implement I45: refuse redirects, and raise `json.redirect`.** D73 and D76 are decided and
+`20-contract.md` carries the amendment (I45, `json.redirect` in §10.2, I18's never-retried list,
+I28's 502 mapping); the code does not. `src/core/pipeline.ts`'s `httpAttempt` passes no `redirect`
+mode and `ReasonCode` in `src/core/types.ts` still carries eight codes. Owed: the request mode, the
+final-origin comparison against the declared source, the ninth code, `/node`'s router row, and — per
+`00-brief.md` §7.1 — a test that fails when the invariant is removed, in both halves, since a
+conforming port's refusal and a non-conforming port's follow are different code paths. Not a slice:
+it takes `/fix`'s route, at `sonnet`, `medium`, and gains a row in `30-slices.md`'s *Invariants
+landed outside the slice plan* when it lands.
 
 The `src/core/types.ts` header-comment-direction item was filed on 2026-09-03 as issue #96,
 fixed via PR #97, and removed from this section likewise.
