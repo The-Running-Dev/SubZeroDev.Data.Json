@@ -1,5 +1,8 @@
 # SubZeroDev.Data.Json
 
+**Read [`AGENTS.shared.md`](C:/Users/Ben/.agent-kit/AGENTS.shared.md) completely before this file.** It holds the rules every repository using the kit shares.
+
+
 A source-agnostic JSON loader for TypeScript, published as `subzerodev-data-json`. One call
 site reads a named JSON payload; where it comes from (bundled import, file on disk, HTTP
 endpoint) and when it resolves (build time or runtime) are declared in configuration, not at
