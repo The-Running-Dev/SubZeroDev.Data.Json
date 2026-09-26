@@ -2367,6 +2367,35 @@ is two rather than three.
 
 ---
 
+## D78 — J9 adopts published manifest digests, without requiring `json.lock` (2026-09-26)
+
+Context: J9.3 named `json.lock` as the source of content-pack identity. The published content
+packs instead have a `manifest.json` with per-campaign digests, produced by
+`SubZeroDev.Adventures.Content/scripts/export-content.ts`. The browser host already loads and
+checks those digests in `SubZeroDev.Adventures/src/play/composition.ts`. The engine's current
+`digestManifestResolution` hashes ordered `{id, version}` pairs, so a digest-only content change
+does not yet change its resolution identity. The content-pack and JSON-consumer gate is therefore
+met, while J9.3 still has real identity work to do. D77's `json.lock` rationale was based on the
+pre-content-pack plan; its two-export conclusion stands.
+
+Chosen: J9.3 uses the existing published manifest digests as verified inputs to the engine's
+content-pack identity. JSON loading and verification stay at the host boundary; the engine owns
+`campaignVersion` and resolution semantics, and this package supplies canonical serialization
+and SHA-256. J9 requires no content-repository `json.lock` producer or new package export. The
+criterion remains open until the engine's identity actually responds to the verified digests.
+
+Rejected: adding a `json.lock` generator to the content repository to satisfy the old wording.
+It would maintain two digest inventories for the same published campaigns and make their
+agreement another build obligation, while the host already consumes and verifies the manifest.
+
+Rejected: treating the current manifest resolution digest as satisfying J9.3. It excludes the
+per-campaign digests, so campaign bytes can change without changing that identity. Calling it
+done would leave the stated content-pack identity requirement untested.
+
+Reversibility: cheap before J9 implementation; expensive once identity values are persisted.
+
+---
+
 ## Deferred
 
 | | Item | Gated on |
@@ -2390,7 +2419,7 @@ then it is removed. New items go here as bullets, each starting with a **bolded 
   absent — including its comment, which cites §9 as declaring none of the three. `digestOf` stays
   internal and the test keeps asserting *its* absence. Nothing in `src/core/canonical.ts` or
   `src/core/sha256.ts` changes: I46 promises their current output, so a change to either is the
-  thing the invariant forbids. It unblocks J9.1, which is still gated on content packs existing.
+  thing the invariant forbids. It unblocks J9.1; the content-pack gate is now met.
 
 The I45 redirect-refusal implementation item (D73, D76) was filed on 2026-09-05 as issue #107
 and removed from this section likewise.

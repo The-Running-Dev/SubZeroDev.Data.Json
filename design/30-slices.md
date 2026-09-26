@@ -26,8 +26,8 @@ in ascending order of what a mistake in them costs to undo.
 
 **Where the work stands.** J1, J10, J11, J12, J2, J3, J5, J4, J13, J6, and J8 are merged — the
 core, all four leaves, the configuration bridge, and both adoption slices that were ever in
-scope. **J9 is the only slice left, and it is deferred** — gated on content packs existing
-rather than on anything unresolved here. Doneness itself is the issue's to record, not this
+scope. **J9 is the only slice left.** Its content-pack and JSON-consumer gate is now met;
+adoption remains unscheduled. Doneness itself is the issue's to record, not this
 file's (`AGENTS.md`, *Tracking work*); the checkboxes below define a slice and are not a
 progress bar.
 
@@ -631,24 +631,25 @@ not an improvement to the content.
 
 ---
 
-## J9 — GameEngine adoption *(deferred)*
+## J9 — GameEngine adoption
 
-**Gated on content packs existing.** v1 makes this possible; it does not schedule it.
+**The content-pack gate is met.** Published content packs and a browser host that loads their
+JSON now exist (D78). v1 makes this possible; it does not schedule it.
 Nothing in J1–J8 may depend on J9.
 
 Delivers: The game engine deletes its own copy of the canonical serializer and imports this
-one, retiring a duplication that has been deliberate and dated since D9, and starts using
-build digests as content-pack identity.
+one, retiring a duplication that has been deliberate and dated since D9. The host loads and
+verifies published content JSON; the engine uses its manifest digests as content-pack identity
+inputs.
 
-**Touches:** `SubZeroDev.GameEngine`
-**Depends on:** J1, and a GameEngine consumer that actually loads JSON
+**Touches:** this package, `SubZeroDev.GameEngine`, `SubZeroDev.Adventures`
+**Depends on:** J1, published content packs, and a GameEngine host that actually loads JSON
 **No longer blocked by `20-contract.md` §12 U7.** J9.1 needed a public canonical-serialization
 export and §9 declared none; §12 U7 is now closed and §9 declares `canonicalize` and `sha256Hex`,
 constrained by I46 (`90-decisions.md` D77). The set was decided against J9.1's requirement read at
 the engine's own HEAD — `canonicalize` alone would not have let this slice delete the file it
 names. Neither export is implemented yet, so J9.1's first step is that re-export landing, not a
-further amendment. §12 U4 no longer blocks this slice either (D39). What still gates J9 is content
-packs existing, above
+further amendment. §12 U4 no longer blocks this slice either (D39).
 
 ### Done when
 
@@ -657,9 +658,10 @@ packs existing, above
 - [ ] **J9.2** The engine's determinism harness passes with the package in the graph. This is
       also where `10-design.md` §7 Q4 is answered rather than speculated about: whether that
       guard bans ambient timers is checkable here and nowhere else.
-- [ ] **J9.3** `json.lock` digests feed content-pack identity. The engine owns
-      `campaignVersion` semantics; this package supplies the digest primitive and nothing
-      above it (`00-brief.md` §5.7).
+- [ ] **J9.3** The host loads and verifies campaign JSON against the published manifest's
+      per-campaign digests, and those verified digests feed the engine's content-pack identity.
+      The engine owns `campaignVersion` semantics; this package supplies the digest primitive
+      and nothing above it (`00-brief.md` §5.7, D78). No `json.lock` is required for this adoption.
 
 **Out of scope:** `campaignVersion` semantics, content-pack resolution, and anything above the
 digest — `00-brief.md` §5.7 is binding in both directions.
@@ -721,7 +723,7 @@ register that answers them; this section is a pointer, not a second copy (`AGENT
   alone.
 - **§12 U7 is closed.** The core exports `canonicalize` and `sha256Hex` and not `digestOf`; §9
   declares both under I46 (`90-decisions.md` D77). Was gap 2. It blocked **J9** and it no longer
-  does — what J9 still waits on is content packs existing, not a contract answer.
+  does. Published content packs and a browser JSON consumer now meet J9's remaining gate.
 - Gap 3, `meta.location` for an `inline` source, is **closed**: `20-contract.md` §1 states that
   `location` is `''` both when nothing resolved and for an `inline` source, and that `provider`
   is what distinguishes them.
