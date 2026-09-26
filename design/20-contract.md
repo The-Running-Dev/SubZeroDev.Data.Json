@@ -437,9 +437,10 @@ second boundary inside the core.
 is these two and not one: the file J9.1 deletes exports four symbols, and one surviving caller —
 the engine's `persistence/envelope.ts` — hashes a string `canonicalize` never produced, so
 `canonicalize` alone leaves J9 blocked. The engine already carries its own digest function under a
-prefix this package's `Digest` does not admit, and J9.3 reads `json.lock` digests as data rather
-than recomputing them. Adding `digestOf` later stays additive, which is the whole reason for
-leaving it out now (`10-design.md` §2, D44). It is canonical serialization then this module's
+prefix this package's `Digest` does not admit, and J9.3 reads published manifest digests as data
+rather than requiring this package's `json.lock` (D78). Adding `digestOf` later stays additive,
+which is the whole reason for leaving it out now (`10-design.md` §2, D44). It is canonical
+serialization then this module's
 SHA-256 under the `sha256-` prefix, and that composition is what would make a consumer-computed
 digest comparable to a lockfile one.
 
@@ -550,8 +551,8 @@ it does not pick the functions; what picks them is J9.1's requirement, read at
 J9.1 deletes exports four symbols; two survive the deletion with callers, and one of those callers
 hashes a string `canonicalize` never produced — so the one-export reading U7 offered leaves J9
 blocked. `digestOf` stays internal because the engine has its own under a prefix this package's
-`Digest` does not admit, and J9.3 consumes `json.lock` digests as data. The exports are contracted
-here and **not yet implemented** — `src/core/index.ts` re-exports neither, and
+`Digest` does not admit, and J9.3 consumes published manifest digests as data (D78). The exports
+are contracted here and **not yet implemented** — `src/core/index.ts` re-exports neither, and
 `src/core/index.test.ts` asserts outright that it does not, so the implementing work inverts that
 test rather than deleting it. The id is retired, not reused.
 
