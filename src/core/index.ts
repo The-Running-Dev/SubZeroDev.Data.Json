@@ -1,6 +1,8 @@
 export { normalizeSource } from './config.js';
+export { canonicalize } from './canonical.js';
 export { JsonError } from './errors.js';
 export { createJsonLoader } from './loader.js';
+export { sha256Hex } from './sha256.js';
 export type {
   CacheEntry,
   CachePolicy,
