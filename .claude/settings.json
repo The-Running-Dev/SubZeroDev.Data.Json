@@ -1,7 +1,0 @@
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "pwsh -File \"${CLAUDE_PROJECT_DIR}/tools/Measure-Session.ps1\" -Watch" }] }
-    ]
-  }
-}
