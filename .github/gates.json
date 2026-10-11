@@ -1,0 +1,28 @@
+{
+  "gates": [
+    {
+      "name": "package / install",
+      "command": "npm ci"
+    },
+    {
+      "name": "package / typecheck",
+      "command": "npm run typecheck"
+    },
+    {
+      "name": "package / lint",
+      "command": "npm run lint"
+    },
+    {
+      "name": "package / test",
+      "command": "npm run test"
+    },
+    {
+      "name": "package / build",
+      "command": "npm run build"
+    },
+    {
+      "name": "powershell / Pester tools",
+      "command": "pwsh -NoProfile -Command \"Invoke-Pester -Configuration @{ Run = @{ Path = @('tools'); Exit = [bool]1 } }\""
+    }
+  ]
+}

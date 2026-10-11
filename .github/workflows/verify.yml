@@ -1,59 +1,35 @@
 name: verify
 
+# Pull requests and main build, test and pack the package; a v*.*.* tag also publishes it to
+# npmjs and creates the GitHub release. The tag must match the package.json version.
 on:
   push:
     branches: [main]
+    tags: ['v*.*.*']
   pull_request:
 
+permissions: {}
+
 jobs:
+  package:
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    uses: The-Running-Dev/GitHub-ActionTemplates/.github/workflows/npm-package.yml@v0
+    with:
+      node-version: '22'
+      # build last: npm pack runs prepack, not prepublishOnly, so dist/ is built here.
+      scripts: typecheck lint test build
+      access: public
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   powershell:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # verification: true
-      - name: Parse-check PowerShell scripts
-        shell: pwsh
-        run: |
-          $failed = $false
-          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
-            $parseErrors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$parseErrors) | Out-Null
-            if ($parseErrors.Count) {
-              Write-Error "Parse errors in $($_.FullName): $($parseErrors -join '; ')"
-              $failed = $true
-            }
-          }
-          if ($failed) { exit 1 }
-
-      # verification: true
-      - name: Run Pester tests
-        shell: pwsh
-        run: |
-          Import-Module Pester -MinimumVersion 5.0
-          $result = Invoke-Pester -Path tools -Output Detailed -PassThru
-          if ($result.FailedCount -gt 0) { exit 1 }
-
-  core:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install dependencies
-        run: npm ci
-
-      # verification: true
-      - name: Typecheck
-        run: npm run typecheck
-
-      # verification: true
-      - name: Determinism guard (I1)
-        run: npm run lint
-
-      # verification: true
-      - name: Run tests
-        run: npm test
+    permissions:
+      contents: read
+    uses: The-Running-Dev/GitHub-ActionTemplates/.github/workflows/pwsh-ci.yml@v0
+    with:
+      os: '["windows-latest"]'
+      paths: tools
+      tests: tools
