@@ -16,7 +16,7 @@ jobs:
       contents: write
       packages: write
       id-token: write
-    uses: The-Running-Dev/GitHub-ActionTemplates/.github/workflows/npm-package.yml@v0
+    uses: The-Running-Dev/GitHub-ActionTemplates/.github/workflows/npm-package.yml@v1
     with:
       node-version: '22'
       # build last: npm pack runs prepack, not prepublishOnly, so dist/ is built here.
@@ -28,7 +28,7 @@ jobs:
   powershell:
     permissions:
       contents: read
-    uses: The-Running-Dev/GitHub-ActionTemplates/.github/workflows/pwsh-ci.yml@v0
+    uses: The-Running-Dev/GitHub-ActionTemplates/.github/workflows/pwsh-ci.yml@v1
     with:
       os: '["windows-latest"]'
       paths: tools
